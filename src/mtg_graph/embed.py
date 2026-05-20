@@ -60,6 +60,21 @@ def _embed_local(profiles: list[str]) -> np.ndarray:
     return vectors.astype(np.float32)
 
 
+def _embed_openai(profiles: list[str]) -> np.ndarray:
+    from openai import OpenAI
+
+    client = OpenAI()
+    all_vectors: list[np.ndarray] = []
+    n_batches = (len(profiles) + OPENAI_BATCH_SIZE - 1) // OPENAI_BATCH_SIZE
+    for i in range(0, len(profiles), OPENAI_BATCH_SIZE):
+        batch = profiles[i : i + OPENAI_BATCH_SIZE]
+        batch_idx = i // OPENAI_BATCH_SIZE + 1
+        print(f"  Batch {batch_idx}/{n_batches} ({len(batch)} items)...")
+        resp = client.embeddings.create(model=OPENAI_MODEL_ID, input=batch)
+        all_vectors.extend(np.array(item.embedding, dtype=np.float32) for item in resp.data)
+    return np.stack(all_vectors)
+
+
 def run(
     input_path: Path = Path("output/cards_top5k.parquet"),
     output_dir: Path = Path("output"),
@@ -93,7 +108,23 @@ def run(
         print(f"  Wrote {local_npy} (shape {vectors.shape})")
     results["local"] = local_npy
 
-    # OpenAI side — added in Task 5.
+    # OpenAI
+    if skip_openai:
+        print("Skipping OpenAI (skip_openai=True)")
+    elif not os.environ.get("OPENAI_API_KEY"):
+        print("Skipping OpenAI (OPENAI_API_KEY not set in environment or .env)")
+    else:
+        openai_npy = output_dir / "embeddings_openai.npy"
+        openai_sidecar = output_dir / "embeddings_openai.json"
+        if not force and _cache_is_valid(openai_sidecar, OPENAI_MODEL_ID, card_hash):
+            print(f"OpenAI cache valid — skipping ({openai_npy})")
+        else:
+            print(f"Generating OpenAI embeddings ({OPENAI_MODEL_ID})...")
+            vectors = _embed_openai(profiles)
+            _write_cache(openai_npy, openai_sidecar, vectors, OPENAI_MODEL_ID, card_hash)
+            print(f"  Wrote {openai_npy} (shape {vectors.shape})")
+        results["openai"] = openai_npy
+
     return results
 
 
