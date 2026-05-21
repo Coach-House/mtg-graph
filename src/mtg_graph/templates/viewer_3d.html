@@ -61,6 +61,13 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
 .mode-switch { color: var(--accent); text-decoration: none; font-size: 12px; }
 .mode-switch:hover { color: var(--accent-bright); }
+
+.neighbor-mode-row { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
+.neighbor-mode-row .nmr-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); margin-right: 4px; }
+.nm-btn { flex: 1; background: var(--input-bg); color: var(--text-dim); border: 1px solid var(--panel-border); padding: 5px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; }
+.nm-btn:hover { color: var(--text); }
+.nm-btn.active { background: var(--panel-border); color: var(--accent-bright); border-color: var(--accent); }
+
 .search-row { position: relative; margin-bottom: 16px; }
 #search {
   width: 100%;
@@ -147,13 +154,18 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
         <span class="mode-label">{{MODE_LABEL}}</span>
         <a class="mode-switch" href="{{COUNTERPART_HREF}}">{{COUNTERPART_LABEL}} →</a>
       </div>
+      <div class="neighbor-mode-row">
+        <span class="nmr-label">Neighbors</span>
+        <button class="nm-btn active" data-mode="semantic" title="Cards most similar in 768d embedding space (the truth)">Semantic</button>
+        <button class="nm-btn" data-mode="spatial" title="Cards literally next to it in this 3D view">Nearby</button>
+      </div>
       <div class="search-row">
         <input type="text" id="search" placeholder="Search card name…" autocomplete="off" />
         <div id="search-results"></div>
       </div>
       <div id="placeholder" class="placeholder">
         Click a node or search a card.<br>
-        Selected card lights up gold and its 20 semantic neighbors get outlined with edges.
+        Selected card lights up gold and its 20 neighbors get highlighted with edges.
       </div>
       <div id="card-detail" class="card-detail">
         <div class="card-img-wrap"><img id="card-img" alt="" /></div>
@@ -170,7 +182,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
           <button id="clear-selection">Clear</button>
           <a id="scryfall-link" href="#" target="_blank" rel="noopener">View on Scryfall ↗</a>
         </div>
-        <div class="section-header">Nearest neighbors (semantic)</div>
+        <div class="section-header" id="neighbors-header">Nearest neighbors</div>
         <div class="neighbor-list" id="neighbor-list"></div>
       </div>
     </div>
@@ -185,6 +197,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 
 <script type="module">
 import ForceGraph3D from 'https://esm.sh/3d-force-graph@1.73.4';
+import * as THREE from 'https://esm.sh/three@0.160.0';
 
 const POINT_META = JSON.parse(document.getElementById('point-meta').textContent);
 const POSITIONS = JSON.parse(document.getElementById('point-positions-3d').textContent);
@@ -193,8 +206,9 @@ const KNN_BY_OID = JSON.parse(document.getElementById('knn-by-oid').textContent)
 const OID_TO_IDX = JSON.parse(document.getElementById('oid-to-idx').textContent);
 
 const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
+const NEIGHBOR_COUNT = 20;
+const SPRITE_BASE_SIZE = 5;
 
-// Build graph data with FIXED positions (d3-force-3d respects fx/fy/fz to anchor nodes).
 const nodes = POINT_META.map((m, i) => ({
   id: m.oracle_id,
   name: m.name,
@@ -218,26 +232,48 @@ for (const [srcOid, neighborOids] of Object.entries(KNN_BY_OID)) {
 
 const state = {
   selectedOid: null,
-  highlightSet: new Set(),       // oids in the current highlight (selected + neighbors)
-  highlightedLinks: new Set(),   // link object refs whose source = selectedOid
+  highlightSet: new Set(),
+  highlightedLinks: new Set(),
+  neighborMode: 'semantic',
 };
+
+// Build a soft radial gradient texture once; all sprites share it.
+const NODE_TEXTURE = (() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128; canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0.0, 'rgba(255,255,255,1.0)');
+  grad.addColorStop(0.25, 'rgba(255,255,255,0.95)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,0.35)');
+  grad.addColorStop(1.0, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(canvas);
+})();
 
 const chartEl = document.getElementById('chart');
 const graph = new ForceGraph3D(chartEl)
   .graphData({nodes, links})
   .backgroundColor('#0a0a0a')
   .showNavInfo(false)
-  .nodeRelSize(2.5)
-  .nodeOpacity(1.0)
-  .nodeColor(node => {
-    if (state.selectedOid === null) return node.color;
-    if (node.id === state.selectedOid) return '#FBBF24';
-    if (state.highlightSet.has(node.id)) return '#FFFFFF';
-    return dim(node.color, 0.12);
-  })
   .nodeLabel(node => `<div style="font-weight:600">${escapeHtml(node.name)}</div>`)
+  .nodeThreeObject(node => {
+    const mat = new THREE.SpriteMaterial({
+      map: NODE_TEXTURE,
+      color: node.color,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(SPRITE_BASE_SIZE, SPRITE_BASE_SIZE, 1);
+    node._sprite = sprite;
+    node._baseColor = new THREE.Color(node.color);
+    return sprite;
+  })
   .linkColor(link => {
-    if (state.selectedOid === null) return 'rgba(251,191,36,0.025)';
+    if (state.selectedOid === null) return 'rgba(251,191,36,0.018)';
     if (state.highlightedLinks.has(link)) return 'rgba(251,191,36,0.95)';
     return 'rgba(251,191,36,0)';
   })
@@ -250,36 +286,54 @@ const graph = new ForceGraph3D(chartEl)
   })
   .onBackgroundClick(() => clearSelection());
 
-// Make sure simulation doesn't run (we have fixed positions). Stop after first render.
 graph.d3Force('charge', null);
 graph.d3Force('center', null);
 graph.d3Force('link', null);
 
+function getNeighbors(oid, k = NEIGHBOR_COUNT) {
+  if (state.neighborMode === 'semantic') {
+    return (KNN_BY_OID[oid] || []).slice(0, k);
+  }
+  // Spatial: K-nearest in this view's 3D coords. Runtime computed.
+  const idx = OID_TO_IDX[oid];
+  if (idx === undefined) return [];
+  const self = nodes[idx];
+  const dists = new Array(nodes.length);
+  for (let i = 0; i < nodes.length; i++) {
+    if (i === idx) { dists[i] = [Infinity, i]; continue; }
+    const n = nodes[i];
+    const dx = n.fx - self.fx, dy = n.fy - self.fy, dz = n.fz - self.fz;
+    dists[i] = [dx * dx + dy * dy + dz * dz, i];
+  }
+  dists.sort((a, b) => a[0] - b[0]);
+  return dists.slice(0, k).map(([, i]) => nodes[i].id);
+}
+
 function selectCard(oid) {
   if (OID_TO_IDX[oid] === undefined) return;
   state.selectedOid = oid;
-  state.highlightSet = new Set([oid, ...(KNN_BY_OID[oid] || [])]);
+  const neighborOids = getNeighbors(oid);
+  state.highlightSet = new Set([oid, ...neighborOids]);
   state.highlightedLinks = new Set();
-  const neighborOids = new Set(KNN_BY_OID[oid] || []);
-  for (const link of links) {
-    const srcId = (link.source && link.source.id) || link.source;
-    const tgtId = (link.target && link.target.id) || link.target;
-    if (srcId === oid && neighborOids.has(tgtId)) state.highlightedLinks.add(link);
+  // Edges only drawn in semantic mode (links graph was built from semantic KNN).
+  if (state.neighborMode === 'semantic') {
+    const neighborSet = new Set(neighborOids);
+    for (const link of links) {
+      const srcId = (link.source && link.source.id) || link.source;
+      const tgtId = (link.target && link.target.id) || link.target;
+      if (srcId === oid && neighborSet.has(tgtId)) state.highlightedLinks.add(link);
+    }
   }
-  // Push the same accessor functions back to force a re-render of colors/widths.
-  graph
-    .nodeColor(graph.nodeColor())
-    .linkColor(graph.linkColor())
-    .linkWidth(graph.linkWidth());
-  // Move camera to look at the selected node.
+  updateSpriteAppearance();
+  graph.linkColor(graph.linkColor()).linkWidth(graph.linkWidth());
   const node = nodes[OID_TO_IDX[oid]];
   if (node) {
-    const distance = 220;
-    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z || 1);
+    const distance = 90;
+    const distRatio = 1 + distance / Math.max(Math.hypot(node.x, node.y, node.z || 1), 1);
     graph.cameraPosition(
       {x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio},
       {x: node.x, y: node.y, z: node.z},
-      1200
+      1000
     );
   }
   renderPanel(oid);
@@ -289,17 +343,38 @@ function clearSelection() {
   state.selectedOid = null;
   state.highlightSet = new Set();
   state.highlightedLinks = new Set();
-  graph.nodeColor(graph.nodeColor()).linkColor(graph.linkColor()).linkWidth(graph.linkWidth());
+  updateSpriteAppearance();
+  graph.linkColor(graph.linkColor()).linkWidth(graph.linkWidth());
   document.getElementById('placeholder').style.display = 'block';
   document.getElementById('card-detail').classList.remove('open');
 }
 
-function dim(hex, alpha) {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
+function updateSpriteAppearance() {
+  const selOid = state.selectedOid;
+  for (const node of nodes) {
+    const sprite = node._sprite;
+    if (!sprite) continue;
+    if (selOid === null) {
+      sprite.material.color.copy(node._baseColor);
+      sprite.material.opacity = 1.0;
+      sprite.scale.set(SPRITE_BASE_SIZE, SPRITE_BASE_SIZE, 1);
+    } else if (node.id === selOid) {
+      sprite.material.color.set(0xFBBF24);
+      sprite.material.opacity = 1.0;
+      const s = SPRITE_BASE_SIZE * 2.4;
+      sprite.scale.set(s, s, 1);
+    } else if (state.highlightSet.has(node.id)) {
+      sprite.material.color.set(0xFFFFFF);
+      sprite.material.opacity = 1.0;
+      const s = SPRITE_BASE_SIZE * 1.5;
+      sprite.scale.set(s, s, 1);
+    } else {
+      sprite.material.color.copy(node._baseColor);
+      sprite.material.opacity = 0.18;
+      const s = SPRITE_BASE_SIZE * 0.75;
+      sprite.scale.set(s, s, 1);
+    }
+  }
 }
 
 function renderPanel(oid) {
@@ -324,13 +399,15 @@ function renderPanel(oid) {
   if (card.set_name) bits.push(escapeHtml(card.set_name));
   prices.innerHTML = bits.join(' · ');
   document.getElementById('scryfall-link').href = card.scryfall_uri || '#';
+  document.getElementById('neighbors-header').textContent =
+    state.neighborMode === 'semantic' ? 'Semantic neighbors (768d)' : 'Spatially nearby (3D)';
   renderNeighbors(oid);
 }
 
 function renderNeighbors(oid) {
   const list = document.getElementById('neighbor-list');
-  const neighbors = KNN_BY_OID[oid] || [];
-  list.innerHTML = neighbors.slice(0, 10).map(noid => {
+  const neighbors = getNeighbors(oid, 10);
+  list.innerHTML = neighbors.map(noid => {
     const c = POINT_META[OID_TO_IDX[noid]];
     if (!c) return '';
     return `<div class="neighbor" data-oid="${noid}">
@@ -342,6 +419,16 @@ function renderNeighbors(oid) {
     el.addEventListener('click', () => selectCard(el.dataset.oid));
   });
 }
+
+// Neighbor mode toggle
+document.querySelectorAll('.nm-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nm-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.neighborMode = btn.dataset.mode;
+    if (state.selectedOid) selectCard(state.selectedOid);
+  });
+});
 
 // Search
 const searchInput = document.getElementById('search');
