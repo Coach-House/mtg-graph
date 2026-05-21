@@ -65,9 +65,9 @@ def run(
     df["price_usd_foil"] = df["prices"].apply(lambda p: _pick_price(p, "usd_foil"))
 
     cols = [
-        "oracle_id", "name", "mana_cost", "type_line", "oracle_text",
+        "oracle_id", "name", "mana_cost", "cmc", "type_line", "oracle_text",
         "flavor_text", "keywords", "colors", "color_identity", "rarity",
-        "set_name", "edhrec_rank",
+        "set", "set_name", "legalities", "edhrec_rank",
         "image_small", "image_normal", "image_art_crop",
         "price_usd", "price_usd_foil",
         "scryfall_uri",
