@@ -125,8 +125,8 @@ def _build_cosmograph_data(
 
     # Per-card metadata used by the side panel. Indexed by position (matches positions order).
     meta_fields = [
-        "oracle_id", "name", "mana_cost", "type_line", "oracle_text",
-        "flavor_text", "rarity", "set_name", "edhrec_rank",
+        "oracle_id", "name", "mana_cost", "cmc", "type_line", "oracle_text",
+        "flavor_text", "rarity", "set", "set_name", "legalities", "edhrec_rank",
         "image_small", "image_normal", "image_art_crop",
         "price_usd", "price_usd_foil", "scryfall_uri",
     ]
@@ -246,8 +246,8 @@ def _build_forcegraph_data(
     oid_to_idx = {oid: i for i, oid in enumerate(df["oracle_id"].tolist())}
 
     meta_fields = [
-        "oracle_id", "name", "mana_cost", "type_line", "oracle_text",
-        "flavor_text", "rarity", "set_name", "edhrec_rank",
+        "oracle_id", "name", "mana_cost", "cmc", "type_line", "oracle_text",
+        "flavor_text", "rarity", "set", "set_name", "legalities", "edhrec_rank",
         "image_small", "image_normal", "image_art_crop",
         "price_usd", "price_usd_foil", "scryfall_uri",
     ]
