@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-UMAP_KWARGS = dict(n_neighbors=15, min_dist=0.1, metric="cosine", random_state=42)
+UMAP_KWARGS = dict(n_neighbors=15, min_dist=0.5, metric="cosine", random_state=42)
 
 
 def _reduce(vectors: np.ndarray, label: str, n_components: int) -> np.ndarray:

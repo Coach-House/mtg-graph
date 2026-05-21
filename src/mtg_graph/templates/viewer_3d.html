@@ -227,8 +227,9 @@ const graph = new ForceGraph3D(chartEl)
   .graphData({nodes, links})
   .backgroundColor('#0a0a0a')
   .showNavInfo(false)
-  .nodeRelSize(2.5)
+  .nodeRelSize(1.2)
   .nodeOpacity(1.0)
+  .enableNodeDrag(false)
   .nodeColor(node => {
     if (state.selectedOid === null) return node.color;
     if (node.id === state.selectedOid) return '#FBBF24';
