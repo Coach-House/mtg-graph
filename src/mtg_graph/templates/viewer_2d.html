@@ -53,12 +53,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
 .mode-switch { color: var(--accent); text-decoration: none; font-size: 12px; }
 .mode-switch:hover { color: var(--accent-bright); }
-.neighbor-mode-row { display: flex; align-items: center; gap: 6px; margin-bottom: 14px; }
-.neighbor-mode-row .nmr-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-dim); margin-right: 4px; }
-.nm-btn { flex: 1; background: var(--input-bg); color: var(--text-dim); border: 1px solid var(--panel-border); padding: 5px 8px; font-size: 11px; border-radius: 3px; cursor: pointer; }
-.nm-btn:hover { color: var(--text); }
-.nm-btn.active { background: var(--panel-border); color: var(--accent-bright); border-color: var(--accent); }
-
 .search-row { position: relative; margin-bottom: 16px; }
 #search {
   width: 100%;
@@ -146,11 +140,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
         <span class="mode-label">{{MODE_LABEL}}</span>
         <a class="mode-switch" href="{{COUNTERPART_HREF}}">{{COUNTERPART_LABEL}} →</a>
       </div>
-      <div class="neighbor-mode-row">
-        <span class="nmr-label">Neighbors</span>
-        <button class="nm-btn active" data-mode="semantic" title="Cards most similar in 768d embedding space (the truth)">Semantic</button>
-        <button class="nm-btn" data-mode="spatial" title="Cards literally next to it in this 2D view">Nearby</button>
-      </div>
       <div class="search-row">
         <input type="text" id="search" placeholder="Search card name…" autocomplete="off" />
         <div id="search-results"></div>
@@ -174,7 +163,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
           <button id="clear-selection">Clear</button>
           <a id="scryfall-link" href="#" target="_blank" rel="noopener">View on Scryfall ↗</a>
         </div>
-        <div class="section-header" id="neighbors-header">Semantic neighbors (768d)</div>
+        <div class="section-header">Nearest neighbors (semantic)</div>
         <div class="neighbor-list" id="neighbor-list"></div>
       </div>
     </div>
@@ -205,35 +194,8 @@ const KNN_BY_OID = JSON.parse(document.getElementById('knn-by-oid').textContent)
 const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
 
 let selectedOid = null;
-let neighborMode = 'semantic';
-const NEIGHBOR_COUNT = 20;
 const chartDiv = document.getElementById('chart');
 const labelsLayer = document.getElementById('labels-layer');
-
-// Precomputed XY for fast spatial KNN at runtime.
-const POS_X = new Float32Array(POINT_META.length);
-const POS_Y = new Float32Array(POINT_META.length);
-for (let i = 0; i < POINT_META.length; i++) {
-  POS_X[i] = POINT_POSITIONS[i * 2];
-  POS_Y[i] = POINT_POSITIONS[i * 2 + 1];
-}
-
-function getNeighbors(oid, k = NEIGHBOR_COUNT) {
-  if (neighborMode === 'semantic') {
-    return (KNN_BY_OID[oid] || []).slice(0, k);
-  }
-  const idx = OID_TO_IDX[oid];
-  if (idx === undefined) return [];
-  const sx = POS_X[idx], sy = POS_Y[idx];
-  const dists = new Array(POS_X.length);
-  for (let i = 0; i < POS_X.length; i++) {
-    if (i === idx) { dists[i] = [Infinity, i]; continue; }
-    const dx = POS_X[i] - sx, dy = POS_Y[i] - sy;
-    dists[i] = [dx * dx + dy * dy, i];
-  }
-  dists.sort((a, b) => a[0] - b[0]);
-  return dists.slice(0, k).map(([, i]) => IDX_TO_OID[i]);
-}
 
 const config = {
   spaceSize: 4096,
@@ -312,15 +274,8 @@ function selectCard(oid) {
   const idx = OID_TO_IDX[oid];
   if (idx === undefined) return;
   selectedOid = oid;
-  if (neighborMode === 'semantic') {
-    // Use Cosmograph's graph topology — neighbors come from the links we passed.
-    graph.selectPointByIndex(idx, true);
-  } else {
-    // Spatial: compute K-nearest in 2D coords, manually select them.
-    const neighborOids = getNeighbors(oid);
-    const indices = [idx, ...neighborOids.map(o => OID_TO_IDX[o]).filter(i => i !== undefined)];
-    graph.selectPointsByIndices(indices);
-  }
+  // selectPointByIndex with selectAdjacentPoints=true highlights selected + neighbors via the links graph.
+  graph.selectPointByIndex(idx, true);
   graph.zoomToPointByIndex(idx, 1200, undefined, true);
   renderPanel(oid);
 }
@@ -354,15 +309,13 @@ function renderPanel(oid) {
   if (card.set_name) bits.push(escapeHtml(card.set_name));
   prices.innerHTML = bits.join(' · ');
   document.getElementById('scryfall-link').href = card.scryfall_uri || '#';
-  document.getElementById('neighbors-header').textContent =
-    neighborMode === 'semantic' ? 'Semantic neighbors (768d)' : 'Spatially nearby (2D)';
   renderNeighbors(oid);
 }
 
 function renderNeighbors(oid) {
   const list = document.getElementById('neighbor-list');
-  const neighbors = getNeighbors(oid, 10);
-  list.innerHTML = neighbors.map(noid => {
+  const neighbors = KNN_BY_OID[oid] || [];
+  list.innerHTML = neighbors.slice(0, 10).map(noid => {
     const c = POINT_META[OID_TO_IDX[noid]];
     if (!c) return '';
     return `<div class="neighbor" data-oid="${noid}">
@@ -374,16 +327,6 @@ function renderNeighbors(oid) {
     el.addEventListener('click', () => selectCard(el.dataset.oid));
   });
 }
-
-// Neighbor mode toggle
-document.querySelectorAll('.nm-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nm-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    neighborMode = btn.dataset.mode;
-    if (selectedOid) selectCard(selectedOid);
-  });
-});
 
 // Search
 const searchInput = document.getElementById('search');
