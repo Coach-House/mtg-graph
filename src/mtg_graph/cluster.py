@@ -94,6 +94,74 @@ def _label_clusters(text_profiles: list[str], cluster_ids: np.ndarray) -> dict[i
     return labels
 
 
+LLM_MODEL = "gpt-4o-mini"
+LLM_PROMPT = """You are labeling clusters of Magic: The Gathering cards.
+
+Given the cards below from one cluster, produce a short label (3–7 words) that
+captures what they have in common. Prefer mechanic names, tribal names, or
+specific effect categories. Avoid generic terms like "cards" or "spells".
+
+Examples of good labels:
+- "Counterspells"
+- "Ninja tribal & Ninjutsu"
+- "Treasure-token generators"
+- "Mass exile sweepers"
+- "Cycling lands"
+- "Fetch lands (search & sacrifice)"
+
+Cards in this cluster:
+{cards}
+
+Hint terms from this cluster (may be noisy): {hints}
+
+Reply with ONLY the label, no preamble, no quotes."""
+
+
+def _llm_label_clusters(
+    df: pd.DataFrame,
+    cluster_ids: np.ndarray,
+    tfidf_labels: dict[int, str],
+) -> dict[int, str]:
+    """Use an LLM to give each cluster a natural-language name.
+    Returns dict[int, str]. Falls back to TF-IDF label on per-cluster API error."""
+    try:
+        from openai import OpenAI
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        return tfidf_labels
+
+    import os
+    if not os.environ.get("OPENAI_API_KEY"):
+        print("    LLM labels skipped (OPENAI_API_KEY not set) — using TF-IDF")
+        return tfidf_labels
+
+    client = OpenAI()
+    out: dict[int, str] = {}
+    unique = [c for c in np.unique(cluster_ids) if c != -1 and c in {int(k) for k in tfidf_labels.keys()}]
+    print(f"    LLM-labeling {len(unique)} clusters via {LLM_MODEL}...")
+    for cid in unique:
+        sub = df[cluster_ids == cid].sort_values("edhrec_rank").head(8)
+        cards_block = "\n".join(
+            f"- {r['name']} ({r['type_line']}): {('' if pd.isna(r['oracle_text']) else str(r['oracle_text'])).replace(chr(10), ' ')[:160]}"
+            for _, r in sub.iterrows()
+        )
+        prompt = LLM_PROMPT.format(cards=cards_block, hints=tfidf_labels.get(int(cid), ""))
+        try:
+            resp = client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=24,
+            )
+            label = resp.choices[0].message.content.strip().strip('"').strip("'")
+            out[int(cid)] = label or tfidf_labels[int(cid)]
+        except Exception as e:
+            print(f"    cluster {cid}: LLM call failed ({e}); falling back to TF-IDF")
+            out[int(cid)] = tfidf_labels[int(cid)]
+    return out
+
+
 def run(
     cards_path: Path = Path("output/cards_top5k.parquet"),
     output_dir: Path = Path("output"),
@@ -101,7 +169,7 @@ def run(
     """Cluster on the 2D UMAP coords (HDBSCAN works much better in low-dim post-UMAP space)."""
     df = pd.read_parquet(cards_path)
     coords = pd.read_parquet(output_dir / "coords.parquet")
-    merged = df[["oracle_id", "text_profile"]].merge(coords, on="oracle_id", how="left")
+    merged = df[["oracle_id", "text_profile", "name", "type_line", "oracle_text", "edhrec_rank"]].merge(coords, on="oracle_id", how="left")
 
     clusters_df = df[["oracle_id"]].copy()
     all_labels: dict[str, dict[int, str]] = {}
@@ -115,6 +183,7 @@ def run(
         cids = _run_hdbscan(xy)
         clusters_df[f"cluster_{label}"] = cids
         cluster_labels = _label_clusters(merged["text_profile"].tolist(), cids)
+        cluster_labels = _llm_label_clusters(merged, cids, cluster_labels)
         all_labels[label] = {str(k): v for k, v in cluster_labels.items()}
         print(f"    {len(cluster_labels)} labeled clusters")
 
