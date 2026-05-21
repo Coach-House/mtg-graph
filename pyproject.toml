@@ -10,7 +10,6 @@ dependencies = [
     "sentence-transformers>=2.7.0",
     "openai>=1.30.0",
     "umap-learn>=0.5.5",
-    "plotly>=5.20.0",
     "python-dotenv>=1.0.0",
 ]
 

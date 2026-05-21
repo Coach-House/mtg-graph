@@ -1,18 +1,19 @@
-# Cosmograph 2D Viewer — Design
+# Cosmograph 2D + 3d-force-graph 3D Viewer — Design
 
-**Status:** Approved
+**Status:** Approved (scope expanded to include 3D after initial 2D swap)
 **Date:** 2026-05-21
 **Author:** Zach Wardlaw + Claude
 
 ## Goal
 
-Replace Plotly with Cosmograph (`@cosmos.gl/graph`) for the 2D interactive viewer so we get native graph features that Plotly fundamentally couldn't deliver:
+Replace Plotly with purpose-built graph libraries for both 2D and 3D so we get native graph features that Plotly fundamentally couldn't deliver:
 
 1. Click a card → its 20 nearest neighbors light up + drawn edges connect them ("spiderweb" effect from the IG video)
-2. Smooth performance at 5k–100k+ nodes
-3. Native search/highlight/hover with no `restyle`-breaks-the-renderer footguns
+2. Smooth performance at 5k–100k+ nodes/edges
+3. Native click/highlight/hover with no `restyle`-breaks-the-renderer footguns
 
-3D viewer keeps using Plotly — it's stable now in side-panel-only mode and Cosmograph is 2D-only.
+**2D:** Cosmograph (`@cosmos.gl/graph`) — WebGL graph viz.
+**3D:** `3d-force-graph` (three.js-based) — uses node `fx/fy/fz` to pin UMAP positions, no force simulation drift. Cosmograph itself is 2D-only, so `3d-force-graph` is the right tool for 3D parity.
 
 ## Why Cosmograph
 

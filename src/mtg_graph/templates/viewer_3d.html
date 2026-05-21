@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8" />
 <title>{{TITLE}}</title>
-<script src="https://cdn.plot.ly/plotly-3.5.0.min.js" charset="utf-8"></script>
 <style>
 :root {
   --bg: #0a0a0a;
@@ -18,13 +17,25 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; height: 100%; overflow: hidden; }
 #app { display: flex; height: 100vh; width: 100vw; }
-#plot { flex: 1; min-width: 0; position: relative; }
+#chart-wrap { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--bg); }
+#chart { width: 100%; height: 100%; display: block; }
+
+.scene-tooltip {
+  background: rgba(17,17,17,0.95) !important;
+  color: #e8e8e8 !important;
+  border: 1px solid var(--panel-border) !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif !important;
+  font-size: 13px !important;
+  padding: 6px 10px !important;
+  border-radius: 4px !important;
+}
+
 #panel {
   width: 420px;
   background: var(--panel-bg);
   border-left: 1px solid var(--panel-border);
   overflow-y: auto;
-  transition: transform 0.2s ease, width 0.2s ease;
+  transition: width 0.2s ease;
   flex-shrink: 0;
 }
 #panel.collapsed { width: 0; border-left: none; }
@@ -45,7 +56,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
   font-family: monospace;
   z-index: 10;
 }
-#panel.collapsed + #toggle-panel { right: 0; }
 .panel-inner { padding: 16px; }
 .mode-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
 .mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
@@ -87,8 +97,6 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .search-result .sr-type { color: var(--text-dim); font-size: 11px; margin-left: 6px; }
 
 .placeholder { color: var(--text-dim); padding: 40px 16px; text-align: center; font-size: 14px; line-height: 1.6; }
-.placeholder kbd { background: var(--input-bg); padding: 2px 6px; border-radius: 3px; border: 1px solid var(--panel-border); font-size: 11px; }
-
 .card-detail { display: none; }
 .card-detail.open { display: block; }
 .card-img-wrap { text-align: center; margin-bottom: 12px; }
@@ -104,13 +112,11 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .section-header { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--panel-border); }
 .neighbor-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .neighbor {
-  display: flex;
-  flex-direction: column;
+  display: flex; flex-direction: column;
   background: var(--input-bg);
   border: 1px solid var(--panel-border);
   border-radius: 4px;
-  padding: 6px;
-  cursor: pointer;
+  padding: 6px; cursor: pointer;
   transition: border-color 0.1s;
 }
 .neighbor:hover { border-color: var(--accent); }
@@ -118,25 +124,20 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .neighbor .n-name { font-size: 11px; margin-top: 4px; line-height: 1.3; }
 .actions { display: flex; gap: 8px; margin-top: 12px; }
 .actions button, .actions a {
-  flex: 1;
-  background: var(--input-bg);
-  color: var(--text);
+  flex: 1; background: var(--input-bg); color: var(--text);
   border: 1px solid var(--panel-border);
-  padding: 7px 10px;
-  font-size: 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  text-decoration: none;
-  text-align: center;
+  padding: 7px 10px; font-size: 12px; border-radius: 4px;
+  cursor: pointer; text-decoration: none; text-align: center;
 }
 .actions button:hover, .actions a:hover { border-color: var(--accent); color: var(--accent-bright); }
 
-#status-bar { position: absolute; bottom: 10px; left: 14px; font-size: 11px; color: var(--text-dim); pointer-events: none; }
+#status-bar { position: absolute; bottom: 10px; left: 14px; font-size: 11px; color: var(--text-dim); pointer-events: none; z-index: 5; }
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="plot">
+  <div id="chart-wrap">
+    <div id="chart"></div>
     <div id="status-bar">{{STATUS_HINT}}</div>
   </div>
   <button id="toggle-panel" title="Toggle panel">«</button>
@@ -151,8 +152,8 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
         <div id="search-results"></div>
       </div>
       <div id="placeholder" class="placeholder">
-        Click a point or search a card.<br>
-        {{INTERACTION_HINT}}
+        Click a node or search a card.<br>
+        Selected card lights up gold and its 20 semantic neighbors get outlined with edges.
       </div>
       <div id="card-detail" class="card-detail">
         <div class="card-img-wrap"><img id="card-img" alt="" /></div>
@@ -176,55 +177,136 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
   </aside>
 </div>
 
-<script id="cards-data" type="application/json">{{CARDS_JSON}}</script>
-<script id="knn-data" type="application/json">{{KNN_JSON}}</script>
-<script id="figure-data" type="application/json">{{FIGURE_JSON}}</script>
+<script id="point-meta" type="application/json">{{POINT_META_JSON}}</script>
+<script id="point-positions-3d" type="application/json">{{POINT_POSITIONS_3D_JSON}}</script>
+<script id="point-colors-hex" type="application/json">{{POINT_COLORS_HEX_JSON}}</script>
+<script id="knn-by-oid" type="application/json">{{KNN_BY_OID_JSON}}</script>
+<script id="oid-to-idx" type="application/json">{{OID_TO_IDX_JSON}}</script>
 
-<script>
-const CARDS = JSON.parse(document.getElementById('cards-data').textContent);
-const KNN = JSON.parse(document.getElementById('knn-data').textContent);
-const FIGURE = JSON.parse(document.getElementById('figure-data').textContent);
-const MODEL_KEY = "{{MODEL_KEY}}";
-const IS_3D = {{IS_3D}};
+<script type="module">
+import ForceGraph3D from 'https://esm.sh/3d-force-graph@1.73.4';
 
-const NAME_INDEX = Object.values(CARDS).map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ""}));
+const POINT_META = JSON.parse(document.getElementById('point-meta').textContent);
+const POSITIONS = JSON.parse(document.getElementById('point-positions-3d').textContent);
+const COLORS_HEX = JSON.parse(document.getElementById('point-colors-hex').textContent);
+const KNN_BY_OID = JSON.parse(document.getElementById('knn-by-oid').textContent);
+const OID_TO_IDX = JSON.parse(document.getElementById('oid-to-idx').textContent);
 
-let selectedOid = null;
+const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
 
-const plotDiv = document.getElementById('plot');
-Plotly.newPlot(plotDiv, FIGURE.data, FIGURE.layout, {responsive: true, displayModeBar: true}).then(() => {
-  findOverlayTraces();
-  registerEvents();
-});
+// Build graph data with FIXED positions (d3-force-3d respects fx/fy/fz to anchor nodes).
+const nodes = POINT_META.map((m, i) => ({
+  id: m.oracle_id,
+  name: m.name,
+  color: COLORS_HEX[i],
+  fx: POSITIONS[i * 3],
+  fy: POSITIONS[i * 3 + 1],
+  fz: POSITIONS[i * 3 + 2],
+  x: POSITIONS[i * 3],
+  y: POSITIONS[i * 3 + 1],
+  z: POSITIONS[i * 3 + 2],
+}));
 
-function registerEvents() {
-  plotDiv.on('plotly_click', (evt) => {
-    if (!evt.points || !evt.points.length) return;
-    const pt = evt.points[0];
-    const oid = pt.customdata && pt.customdata[5];
-    if (oid) selectCard(oid);
-  });
+const links = [];
+for (const [srcOid, neighborOids] of Object.entries(KNN_BY_OID)) {
+  if (OID_TO_IDX[srcOid] === undefined) continue;
+  for (const tgtOid of neighborOids) {
+    if (OID_TO_IDX[tgtOid] === undefined) continue;
+    links.push({source: srcOid, target: tgtOid});
+  }
 }
 
+const state = {
+  selectedOid: null,
+  highlightSet: new Set(),       // oids in the current highlight (selected + neighbors)
+  highlightedLinks: new Set(),   // link object refs whose source = selectedOid
+};
+
+const chartEl = document.getElementById('chart');
+const graph = new ForceGraph3D(chartEl)
+  .graphData({nodes, links})
+  .backgroundColor('#0a0a0a')
+  .showNavInfo(false)
+  .nodeRelSize(2.5)
+  .nodeOpacity(1.0)
+  .nodeColor(node => {
+    if (state.selectedOid === null) return node.color;
+    if (node.id === state.selectedOid) return '#FBBF24';
+    if (state.highlightSet.has(node.id)) return '#FFFFFF';
+    return dim(node.color, 0.12);
+  })
+  .nodeLabel(node => `<div style="font-weight:600">${escapeHtml(node.name)}</div>`)
+  .linkColor(link => {
+    if (state.selectedOid === null) return 'rgba(251,191,36,0.025)';
+    if (state.highlightedLinks.has(link)) return 'rgba(251,191,36,0.95)';
+    return 'rgba(251,191,36,0)';
+  })
+  .linkWidth(link => state.highlightedLinks.has(link) ? 1.5 : 0.4)
+  .linkOpacity(0.7)
+  .cooldownTicks(0)
+  .onNodeClick(node => {
+    if (!node) return;
+    selectCard(node.id);
+  })
+  .onBackgroundClick(() => clearSelection());
+
+// Make sure simulation doesn't run (we have fixed positions). Stop after first render.
+graph.d3Force('charge', null);
+graph.d3Force('center', null);
+graph.d3Force('link', null);
+
 function selectCard(oid) {
-  if (!CARDS[oid]) return;
-  selectedOid = oid;
+  if (OID_TO_IDX[oid] === undefined) return;
+  state.selectedOid = oid;
+  state.highlightSet = new Set([oid, ...(KNN_BY_OID[oid] || [])]);
+  state.highlightedLinks = new Set();
+  const neighborOids = new Set(KNN_BY_OID[oid] || []);
+  for (const link of links) {
+    const srcId = (link.source && link.source.id) || link.source;
+    const tgtId = (link.target && link.target.id) || link.target;
+    if (srcId === oid && neighborOids.has(tgtId)) state.highlightedLinks.add(link);
+  }
+  // Push the same accessor functions back to force a re-render of colors/widths.
+  graph
+    .nodeColor(graph.nodeColor())
+    .linkColor(graph.linkColor())
+    .linkWidth(graph.linkWidth());
+  // Move camera to look at the selected node.
+  const node = nodes[OID_TO_IDX[oid]];
+  if (node) {
+    const distance = 220;
+    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z || 1);
+    graph.cameraPosition(
+      {x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio},
+      {x: node.x, y: node.y, z: node.z},
+      1200
+    );
+  }
   renderPanel(oid);
-  highlightOnPlot(oid);
 }
 
 function clearSelection() {
-  selectedOid = null;
+  state.selectedOid = null;
+  state.highlightSet = new Set();
+  state.highlightedLinks = new Set();
+  graph.nodeColor(graph.nodeColor()).linkColor(graph.linkColor()).linkWidth(graph.linkWidth());
   document.getElementById('placeholder').style.display = 'block';
   document.getElementById('card-detail').classList.remove('open');
-  removeOverlays();
+}
+
+function dim(hex, alpha) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 function renderPanel(oid) {
-  const card = CARDS[oid];
+  const card = POINT_META[OID_TO_IDX[oid]];
+  if (!card) return;
   document.getElementById('placeholder').style.display = 'none';
-  const detail = document.getElementById('card-detail');
-  detail.classList.add('open');
+  document.getElementById('card-detail').classList.add('open');
   document.getElementById('card-img').src = card.image_normal || card.image_small || '';
   document.getElementById('card-img').alt = card.name;
   document.getElementById('card-name').textContent = card.name;
@@ -239,7 +321,7 @@ function renderPanel(oid) {
   const bits = [];
   if (card.price_usd) bits.push('<strong>$' + card.price_usd + '</strong>');
   if (card.price_usd_foil) bits.push('foil <strong>$' + card.price_usd_foil + '</strong>');
-  if (card.set_name) bits.push(card.set_name);
+  if (card.set_name) bits.push(escapeHtml(card.set_name));
   prices.innerHTML = bits.join(' · ');
   document.getElementById('scryfall-link').href = card.scryfall_uri || '#';
   renderNeighbors(oid);
@@ -247,9 +329,9 @@ function renderPanel(oid) {
 
 function renderNeighbors(oid) {
   const list = document.getElementById('neighbor-list');
-  const neighbors = (KNN[MODEL_KEY] && KNN[MODEL_KEY][oid]) || [];
+  const neighbors = KNN_BY_OID[oid] || [];
   list.innerHTML = neighbors.slice(0, 10).map(noid => {
-    const c = CARDS[noid];
+    const c = POINT_META[OID_TO_IDX[noid]];
     if (!c) return '';
     return `<div class="neighbor" data-oid="${noid}">
       <img src="${c.image_small || c.image_normal || ''}" alt="${escapeAttr(c.name)}" loading="lazy" />
@@ -261,64 +343,9 @@ function renderNeighbors(oid) {
   });
 }
 
-const OVERLAY_NAMES = ['_overlay_lines', '_overlay_neighbors', '_overlay_selected'];
-
-function findOverlayTraces() { /* no-op now — overlays are added on-demand */ }
-
-function highlightOnPlot(oid) {
-  // 3D scene's OrbitControls die on any trace mutation — side panel only in 3D.
-  if (IS_3D) return;
-  removeOverlays();
-  const selPos = findCardPosition(oid);
-  if (!selPos) return;
-  const neighbors = (KNN[MODEL_KEY] && KNN[MODEL_KEY][oid]) || [];
-  const nX = [], nY = [];
-  const lX = [], lY = [];
-  for (const noid of neighbors) {
-    const pos = findCardPosition(noid);
-    if (!pos) continue;
-    nX.push(pos[0]); nY.push(pos[1]);
-    lX.push(selPos[0], pos[0], null);
-    lY.push(selPos[1], pos[1], null);
-  }
-  Plotly.addTraces(plotDiv, [
-    {type: 'scatter', x: lX, y: lY, mode: 'lines', name: '_overlay_lines',
-     line: {color: '#FBBF24', width: 1.5}, opacity: 0.8, hoverinfo: 'skip', showlegend: false},
-    {type: 'scatter', x: nX, y: nY, mode: 'markers', name: '_overlay_neighbors',
-     marker: {color: '#FFFFFF', size: 11, opacity: 0.95, line: {color: '#FBBF24', width: 2}},
-     hoverinfo: 'skip', showlegend: false},
-    {type: 'scatter', x: [selPos[0]], y: [selPos[1]], mode: 'markers', name: '_overlay_selected',
-     marker: {color: '#FBBF24', size: 18, opacity: 1.0, line: {color: '#FFFFFF', width: 2.5}},
-     hoverinfo: 'skip', showlegend: false},
-  ]);
-}
-
-function removeOverlays() {
-  if (IS_3D) return;
-  const indices = [];
-  plotDiv.data.forEach((t, i) => {
-    if (OVERLAY_NAMES.includes(t.name)) indices.push(i);
-  });
-  if (indices.length) Plotly.deleteTraces(plotDiv, indices);
-}
-
-function findCardPosition(oid) {
-  for (const trace of plotDiv.data) {
-    if (!trace.customdata) continue;
-    for (let i = 0; i < trace.customdata.length; i++) {
-      if (trace.customdata[i][5] === oid) {
-        if (IS_3D) return [trace.x[i], trace.y[i], trace.z[i]];
-        return [trace.x[i], trace.y[i]];
-      }
-    }
-  }
-  return null;
-}
-
 // Search
 const searchInput = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
-
 searchInput.addEventListener('input', (e) => {
   const q = e.target.value.trim().toLowerCase();
   if (!q) { searchResults.classList.remove('open'); searchResults.innerHTML = ''; return; }
@@ -333,13 +360,13 @@ searchInput.addEventListener('input', (e) => {
   searchResults.classList.add('open');
   searchResults.querySelectorAll('.search-result').forEach(el => {
     el.addEventListener('click', () => {
-      selectCard(el.dataset.oid);
-      searchInput.value = CARDS[el.dataset.oid].name;
+      const oid = el.dataset.oid;
+      selectCard(oid);
+      searchInput.value = POINT_META[OID_TO_IDX[oid]].name;
       searchResults.classList.remove('open');
     });
   });
 });
-
 document.addEventListener('click', (e) => {
   if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
     searchResults.classList.remove('open');
@@ -352,18 +379,9 @@ const toggleBtn = document.getElementById('toggle-panel');
 toggleBtn.addEventListener('click', () => {
   panel.classList.toggle('collapsed');
   toggleBtn.textContent = panel.classList.contains('collapsed') ? '»' : '«';
-  Plotly.Plots.resize(plotDiv);
 });
 
 document.getElementById('clear-selection').addEventListener('click', clearSelection);
-
-// 3D shift-click — DOM-level intercept so we can offer an unambiguous select gesture.
-if (IS_3D) {
-  plotDiv.addEventListener('click', (e) => {
-    if (!e.shiftKey) return;
-    // Plotly's own click event handles this normally; shift just prevents any pan/rotate ambiguity.
-  }, true);
-}
 
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function escapeAttr(s) { return escapeHtml(s); }
