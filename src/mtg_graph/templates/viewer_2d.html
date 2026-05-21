@@ -53,6 +53,48 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
 .mode-switch { color: var(--accent); text-decoration: none; font-size: 12px; }
 .mode-switch:hover { color: var(--accent-bright); }
+.filter-section { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
+.filter-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); cursor: pointer; padding: 4px 0; user-select: none; }
+.filter-header:hover { color: var(--text); }
+.filter-header .chev { font-size: 10px; font-family: monospace; }
+.filter-section.collapsed .filter-body { display: none; }
+.filter-body { padding: 8px 0 4px; }
+.filter-row { margin-bottom: 12px; }
+.filter-row:last-child { margin-bottom: 0; }
+.filter-row label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+.filter-row select, .filter-row input[type=text] {
+  width: 100%; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--panel-border); padding: 5px 8px;
+  font-size: 12px; border-radius: 3px; outline: none;
+}
+.filter-row select:focus, .filter-row input[type=text]:focus { border-color: var(--accent); }
+.format-chips, .color-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 11px;
+  background: var(--input-bg); color: var(--text-dim);
+  border: 1px solid var(--panel-border); cursor: pointer;
+  user-select: none;
+}
+.chip.active { color: var(--text); border-color: var(--accent); background: rgba(201,162,39,0.1); }
+.chip.color-chip { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid transparent; position: relative; }
+.chip.color-chip.off { opacity: 0.25; border-color: var(--panel-border); }
+.chip.color-chip[title]:hover::after {
+  content: attr(title); position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+  background: var(--input-bg); color: var(--text); padding: 3px 7px; border-radius: 3px;
+  font-size: 10px; white-space: nowrap; border: 1px solid var(--panel-border);
+}
+.cmc-row { display: flex; align-items: center; gap: 8px; }
+.cmc-row input[type=range] { flex: 1; accent-color: var(--accent); }
+.cmc-row .cmc-vals { font-size: 11px; color: var(--text-dim); min-width: 32px; text-align: right; }
+.set-options { max-height: 140px; overflow-y: auto; background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 3px; margin-top: 4px; display: none; }
+.set-options.open { display: block; }
+.set-option { padding: 4px 8px; font-size: 11px; cursor: pointer; }
+.set-option:hover { background: var(--panel-border); }
+.set-option.selected { color: var(--accent-bright); }
+.selected-sets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.selected-set-chip { background: rgba(201,162,39,0.15); color: var(--accent-bright); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; cursor: pointer; }
+.selected-set-chip:hover { background: rgba(201,162,39,0.25); }
+.sr-text-hit { color: var(--accent-bright); font-size: 10px; margin-left: 6px; }
 .search-row { position: relative; margin-bottom: 16px; }
 #search {
   width: 100%;
@@ -140,8 +182,46 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
         <span class="mode-label">{{MODE_LABEL}}</span>
         <a class="mode-switch" href="{{COUNTERPART_HREF}}">{{COUNTERPART_LABEL}} →</a>
       </div>
+      <div class="filter-section" id="filter-section">
+        <div class="filter-header" id="filter-header">
+          <span>▾ Filters &amp; Overlays</span>
+        </div>
+        <div class="filter-body">
+          <div class="filter-row">
+            <label for="color-axis">Color by</label>
+            <select id="color-axis">
+              <option value="identity">Color identity</option>
+              <option value="edhrec">EDHREC rank (popularity)</option>
+              <option value="price">Price (USD)</option>
+              <option value="type">Card type</option>
+              <option value="cmc">Mana value</option>
+            </select>
+          </div>
+          <div class="filter-row">
+            <label>Format</label>
+            <div class="format-chips" id="format-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label for="set-input">Set</label>
+            <input type="text" id="set-input" placeholder="Type to filter sets…" autocomplete="off" />
+            <div class="set-options" id="set-options"></div>
+            <div class="selected-sets" id="selected-sets"></div>
+          </div>
+          <div class="filter-row">
+            <label>Mana value <span class="cmc-vals" id="cmc-vals">0–10+</span></label>
+            <div class="cmc-row">
+              <input type="range" id="cmc-min" min="0" max="11" step="1" value="0" />
+              <input type="range" id="cmc-max" min="0" max="11" step="1" value="11" />
+            </div>
+          </div>
+          <div class="filter-row">
+            <label>Color identity visible</label>
+            <div class="color-chips" id="color-chips"></div>
+          </div>
+        </div>
+      </div>
       <div class="search-row">
-        <input type="text" id="search" placeholder="Search card name…" autocomplete="off" />
+        <input type="text" id="search" placeholder="Search name or oracle text…" autocomplete="off" />
         <div id="search-results"></div>
       </div>
       <div id="placeholder" class="placeholder">
@@ -192,6 +272,142 @@ const IDX_TO_OID = JSON.parse(document.getElementById('idx-to-oid').textContent)
 const KNN_BY_OID = JSON.parse(document.getElementById('knn-by-oid').textContent);
 
 const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
+
+let neighborMode = 'semantic';
+
+// ===== Filter & overlay state =====
+const COLOR_BUCKETS = ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless'];
+const COLOR_HEX = {
+  'White': '#F5EEDC', 'Blue': '#3B82F6', 'Black': '#7A6FA0', 'Red': '#EF4444',
+  'Green': '#22C55E', 'Multicolor': '#FBBF24', 'Colorless': '#9CA3AF',
+};
+const FORMATS = ['standard', 'pioneer', 'modern', 'legacy', 'vintage', 'commander', 'pauper', 'brawl'];
+
+const filters = {
+  colorAxis: 'identity',
+  formats: new Set(),        // empty = no format filter
+  sets: new Set(),
+  cmcMin: 0,
+  cmcMax: 11,                // 11 = "10+" = no upper limit
+  visibleColors: new Set(COLOR_BUCKETS),  // all visible by default
+};
+
+function colorBucket(ci) {
+  if (!ci || ci.length === 0) return 'Colorless';
+  if (ci.length > 1) return 'Multicolor';
+  return {W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green'}[ci[0]] || 'Colorless';
+}
+
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+}
+
+// Primary card type extracted from "Legendary Creature — Elf Druid"
+function primaryType(typeLine) {
+  if (!typeLine) return 'Other';
+  const t = typeLine.toLowerCase();
+  for (const k of ['land', 'creature', 'planeswalker', 'instant', 'sorcery', 'enchantment', 'artifact']) {
+    if (t.includes(k)) return k;
+  }
+  return 'Other';
+}
+const TYPE_COLOR = {
+  'land': '#9CA3AF', 'creature': '#22C55E', 'planeswalker': '#FBBF24',
+  'instant': '#3B82F6', 'sorcery': '#7A6FA0', 'enchantment': '#F5EEDC',
+  'artifact': '#A5A5A5', 'Other': '#666666',
+};
+
+function viridis(t) {
+  // 0..1 → roughly viridis. Hand-tuned 5-stop ramp.
+  t = Math.max(0, Math.min(1, t));
+  const stops = [
+    [0.267, 0.005, 0.329], [0.231, 0.318, 0.545],
+    [0.128, 0.567, 0.551], [0.369, 0.788, 0.382],
+    [0.993, 0.906, 0.144],
+  ];
+  const i = Math.min(Math.floor(t * (stops.length - 1)), stops.length - 2);
+  const f = t * (stops.length - 1) - i;
+  return [
+    stops[i][0] + (stops[i+1][0] - stops[i][0]) * f,
+    stops[i][1] + (stops[i+1][1] - stops[i][1]) * f,
+    stops[i][2] + (stops[i+1][2] - stops[i][2]) * f,
+  ];
+}
+
+// Precompute min/max for numeric overlays.
+const edhrecRanks = POINT_META.map(c => c.edhrec_rank).filter(r => r != null);
+const EDHREC_MIN = Math.min(...edhrecRanks);
+const EDHREC_MAX = Math.max(...edhrecRanks);
+const prices = POINT_META.map(c => parseFloat(c.price_usd)).filter(p => !isNaN(p) && p > 0);
+const PRICE_LOG_MIN = Math.log10(Math.min(...prices));
+const PRICE_LOG_MAX = Math.log10(Math.max(...prices));
+const CMC_OVERLAY_MAX = 8;
+
+function pointRgbFor(card) {
+  switch (filters.colorAxis) {
+    case 'identity':
+      return hexToRgb(COLOR_HEX[colorBucket(card.color_identity)]);
+    case 'edhrec': {
+      const r = card.edhrec_rank;
+      if (r == null) return hexToRgb('#444444');
+      const t = 1 - (r - EDHREC_MIN) / (EDHREC_MAX - EDHREC_MIN); // 1 = top-played
+      return viridis(t);
+    }
+    case 'price': {
+      const p = parseFloat(card.price_usd);
+      if (isNaN(p) || p <= 0) return hexToRgb('#333333');
+      const t = (Math.log10(p) - PRICE_LOG_MIN) / (PRICE_LOG_MAX - PRICE_LOG_MIN);
+      return viridis(t);
+    }
+    case 'type':
+      return hexToRgb(TYPE_COLOR[primaryType(card.type_line)] || TYPE_COLOR.Other);
+    case 'cmc': {
+      const c = card.cmc;
+      if (c == null) return hexToRgb('#444444');
+      const t = Math.min(c, CMC_OVERLAY_MAX) / CMC_OVERLAY_MAX;
+      return viridis(t);
+    }
+  }
+  return hexToRgb('#888888');
+}
+
+function cardVisible(card) {
+  // Color identity visibility
+  if (!filters.visibleColors.has(colorBucket(card.color_identity))) return false;
+  // Format filter (cards must be legal in AT LEAST ONE selected format)
+  if (filters.formats.size > 0) {
+    const leg = card.legalities || {};
+    let anyOk = false;
+    for (const f of filters.formats) {
+      if (leg[f] === 'legal') { anyOk = true; break; }
+    }
+    if (!anyOk) return false;
+  }
+  // Set filter
+  if (filters.sets.size > 0 && !filters.sets.has(card.set)) return false;
+  // Mana value range
+  const cmc = card.cmc;
+  if (cmc != null) {
+    if (cmc < filters.cmcMin) return false;
+    if (filters.cmcMax < 11 && cmc > filters.cmcMax) return false;
+  }
+  return true;
+}
+
+function applyFilters() {
+  const colors = new Float32Array(POINT_META.length * 4);
+  for (let i = 0; i < POINT_META.length; i++) {
+    const card = POINT_META[i];
+    const [r, g, b] = pointRgbFor(card);
+    const visible = cardVisible(card);
+    colors[i * 4] = r;
+    colors[i * 4 + 1] = g;
+    colors[i * 4 + 2] = b;
+    colors[i * 4 + 3] = visible ? 1.0 : 0.0;
+  }
+  graph.setPointColors(colors);
+}
 
 let selectedOid = null;
 const chartDiv = document.getElementById('chart');
@@ -328,19 +544,133 @@ function renderNeighbors(oid) {
   });
 }
 
+// ===== Filter UI wiring =====
+
+// Color axis dropdown
+document.getElementById('color-axis').addEventListener('change', (e) => {
+  filters.colorAxis = e.target.value;
+  applyFilters();
+});
+
+// Format chips
+const formatChipsEl = document.getElementById('format-chips');
+formatChipsEl.innerHTML = FORMATS.map(f =>
+  `<span class="chip" data-format="${f}">${f}</span>`
+).join('');
+formatChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const f = el.dataset.format;
+    if (filters.formats.has(f)) { filters.formats.delete(f); el.classList.remove('active'); }
+    else { filters.formats.add(f); el.classList.add('active'); }
+    applyFilters();
+  });
+});
+
+// Set filter
+const SETS_IN_DATA = [...new Set(POINT_META.map(c => c.set).filter(Boolean))].sort();
+const setInput = document.getElementById('set-input');
+const setOptionsEl = document.getElementById('set-options');
+const selectedSetsEl = document.getElementById('selected-sets');
+
+function renderSetOptions(query) {
+  const q = query.trim().toLowerCase();
+  const matches = SETS_IN_DATA.filter(s => s.includes(q) && !filters.sets.has(s)).slice(0, 30);
+  if (!matches.length) { setOptionsEl.classList.remove('open'); return; }
+  setOptionsEl.innerHTML = matches.map(s => `<div class="set-option" data-set="${s}">${s}</div>`).join('');
+  setOptionsEl.classList.add('open');
+  setOptionsEl.querySelectorAll('.set-option').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.add(el.dataset.set);
+      setInput.value = '';
+      setOptionsEl.classList.remove('open');
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+function renderSelectedSets() {
+  selectedSetsEl.innerHTML = [...filters.sets].sort().map(s =>
+    `<span class="selected-set-chip" data-set="${s}">${s} ×</span>`
+  ).join('');
+  selectedSetsEl.querySelectorAll('.selected-set-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.delete(el.dataset.set);
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+setInput.addEventListener('input', () => renderSetOptions(setInput.value));
+setInput.addEventListener('focus', () => renderSetOptions(setInput.value));
+document.addEventListener('click', (e) => {
+  if (!setInput.contains(e.target) && !setOptionsEl.contains(e.target)) setOptionsEl.classList.remove('open');
+});
+
+// Mana value range slider
+const cmcMin = document.getElementById('cmc-min');
+const cmcMax = document.getElementById('cmc-max');
+const cmcVals = document.getElementById('cmc-vals');
+function updateCmcLabel() {
+  const lo = parseInt(cmcMin.value);
+  const hi = parseInt(cmcMax.value);
+  cmcVals.textContent = `${lo}–${hi >= 11 ? '10+' : hi}`;
+}
+function onCmcChange() {
+  let lo = parseInt(cmcMin.value);
+  let hi = parseInt(cmcMax.value);
+  if (lo > hi) { if (this === cmcMin) { hi = lo; cmcMax.value = lo; } else { lo = hi; cmcMin.value = hi; } }
+  filters.cmcMin = lo;
+  filters.cmcMax = hi;
+  updateCmcLabel();
+  applyFilters();
+}
+cmcMin.addEventListener('input', onCmcChange);
+cmcMax.addEventListener('input', onCmcChange);
+updateCmcLabel();
+
+// Color identity chips
+const colorChipsEl = document.getElementById('color-chips');
+colorChipsEl.innerHTML = COLOR_BUCKETS.map(b =>
+  `<span class="chip color-chip" style="background:${COLOR_HEX[b]}" data-color="${b}" title="${b}"></span>`
+).join('');
+colorChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const b = el.dataset.color;
+    if (filters.visibleColors.has(b)) { filters.visibleColors.delete(b); el.classList.add('off'); }
+    else { filters.visibleColors.add(b); el.classList.remove('off'); }
+    applyFilters();
+  });
+});
+
+// Filter section collapse
+document.getElementById('filter-header').addEventListener('click', () => {
+  document.getElementById('filter-section').classList.toggle('collapsed');
+  const span = document.getElementById('filter-header').querySelector('span');
+  span.textContent = span.textContent.startsWith('▾')
+    ? span.textContent.replace('▾', '▸') : span.textContent.replace('▸', '▾');
+});
+
 // Search
 const searchInput = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
+const ORACLE_LOWER = POINT_META.map(c => (c.oracle_text || '').toLowerCase());
 searchInput.addEventListener('input', (e) => {
   const q = e.target.value.trim().toLowerCase();
   if (!q) { searchResults.classList.remove('open'); searchResults.innerHTML = ''; return; }
-  const matches = NAME_INDEX
-    .filter(c => c.name.toLowerCase().includes(q))
-    .sort((a, b) => a.name.length - b.name.length)
-    .slice(0, 12);
+  const words = q.split(/\s+/).filter(Boolean);
+  const matches = [];
+  for (let i = 0; i < NAME_INDEX.length; i++) {
+    const nm = NAME_INDEX[i].name.toLowerCase();
+    const txt = ORACLE_LOWER[i];
+    const nameHit = words.every(w => nm.includes(w));
+    const textHit = !nameHit && words.every(w => txt.includes(w));
+    if (nameHit || textHit) matches.push({...NAME_INDEX[i], textHit, score: nm.length});
+  }
   if (!matches.length) { searchResults.classList.remove('open'); return; }
-  searchResults.innerHTML = matches.map(m =>
-    `<div class="search-result" data-oid="${m.oid}">${escapeHtml(m.name)}<span class="sr-type">${escapeHtml(m.type)}</span></div>`
+  matches.sort((a, b) => a.score - b.score);
+  const top = matches.slice(0, 15);
+  searchResults.innerHTML = top.map(m =>
+    `<div class="search-result" data-oid="${m.oid}">${escapeHtml(m.name)}<span class="sr-type">${escapeHtml(m.type)}</span>${m.textHit ? '<span class="sr-text-hit">[text]</span>' : ''}</div>`
   ).join('');
   searchResults.classList.add('open');
   searchResults.querySelectorAll('.search-result').forEach(el => {
