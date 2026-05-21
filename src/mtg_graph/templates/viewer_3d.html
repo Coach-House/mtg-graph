@@ -61,6 +61,40 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
 .mode-switch { color: var(--accent); text-decoration: none; font-size: 12px; }
 .mode-switch:hover { color: var(--accent-bright); }
+.filter-section { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
+.filter-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); cursor: pointer; padding: 4px 0; user-select: none; }
+.filter-header:hover { color: var(--text); }
+.filter-section.collapsed .filter-body { display: none; }
+.filter-body { padding: 8px 0 4px; }
+.filter-row { margin-bottom: 12px; }
+.filter-row:last-child { margin-bottom: 0; }
+.filter-row label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+.filter-row select, .filter-row input[type=text] {
+  width: 100%; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--panel-border); padding: 5px 8px;
+  font-size: 12px; border-radius: 3px; outline: none;
+}
+.filter-row select:focus, .filter-row input[type=text]:focus { border-color: var(--accent); }
+.format-chips, .color-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 11px;
+  background: var(--input-bg); color: var(--text-dim);
+  border: 1px solid var(--panel-border); cursor: pointer;
+  user-select: none;
+}
+.chip.active { color: var(--text); border-color: var(--accent); background: rgba(201,162,39,0.1); }
+.chip.color-chip { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid transparent; position: relative; }
+.chip.color-chip.off { opacity: 0.25; border-color: var(--panel-border); }
+.cmc-row { display: flex; align-items: center; gap: 8px; }
+.cmc-row input[type=range] { flex: 1; accent-color: var(--accent); }
+.cmc-row .cmc-vals { font-size: 11px; color: var(--text-dim); min-width: 32px; text-align: right; }
+.set-options { max-height: 140px; overflow-y: auto; background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 3px; margin-top: 4px; display: none; }
+.set-options.open { display: block; }
+.set-option { padding: 4px 8px; font-size: 11px; cursor: pointer; }
+.set-option:hover { background: var(--panel-border); }
+.selected-sets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.selected-set-chip { background: rgba(201,162,39,0.15); color: var(--accent-bright); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; cursor: pointer; }
+.sr-text-hit { color: var(--accent-bright); font-size: 10px; margin-left: 6px; }
 .search-row { position: relative; margin-bottom: 16px; }
 #search {
   width: 100%;
@@ -147,8 +181,46 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
         <span class="mode-label">{{MODE_LABEL}}</span>
         <a class="mode-switch" href="{{COUNTERPART_HREF}}">{{COUNTERPART_LABEL}} →</a>
       </div>
+      <div class="filter-section" id="filter-section">
+        <div class="filter-header" id="filter-header">
+          <span>▾ Filters &amp; Overlays</span>
+        </div>
+        <div class="filter-body">
+          <div class="filter-row">
+            <label for="color-axis">Color by</label>
+            <select id="color-axis">
+              <option value="identity">Color identity</option>
+              <option value="edhrec">EDHREC rank (popularity)</option>
+              <option value="price">Price (USD)</option>
+              <option value="type">Card type</option>
+              <option value="cmc">Mana value</option>
+            </select>
+          </div>
+          <div class="filter-row">
+            <label>Format</label>
+            <div class="format-chips" id="format-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label for="set-input">Set</label>
+            <input type="text" id="set-input" placeholder="Type to filter sets…" autocomplete="off" />
+            <div class="set-options" id="set-options"></div>
+            <div class="selected-sets" id="selected-sets"></div>
+          </div>
+          <div class="filter-row">
+            <label>Mana value <span class="cmc-vals" id="cmc-vals">0–10+</span></label>
+            <div class="cmc-row">
+              <input type="range" id="cmc-min" min="0" max="11" step="1" value="0" />
+              <input type="range" id="cmc-max" min="0" max="11" step="1" value="11" />
+            </div>
+          </div>
+          <div class="filter-row">
+            <label>Color identity visible</label>
+            <div class="color-chips" id="color-chips"></div>
+          </div>
+        </div>
+      </div>
       <div class="search-row">
-        <input type="text" id="search" placeholder="Search card name…" autocomplete="off" />
+        <input type="text" id="search" placeholder="Search name or oracle text…" autocomplete="off" />
         <div id="search-results"></div>
       </div>
       <div id="placeholder" class="placeholder">
@@ -194,6 +266,117 @@ const OID_TO_IDX = JSON.parse(document.getElementById('oid-to-idx').textContent)
 
 const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
 
+// ===== Filter & overlay state =====
+const COLOR_BUCKETS = ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless'];
+const COLOR_HEX = {
+  'White': '#F5EEDC', 'Blue': '#3B82F6', 'Black': '#7A6FA0', 'Red': '#EF4444',
+  'Green': '#22C55E', 'Multicolor': '#FBBF24', 'Colorless': '#9CA3AF',
+};
+const FORMATS = ['standard', 'pioneer', 'modern', 'legacy', 'vintage', 'commander', 'pauper', 'brawl'];
+const filters = {
+  colorAxis: 'identity',
+  formats: new Set(),
+  sets: new Set(),
+  cmcMin: 0,
+  cmcMax: 11,
+  visibleColors: new Set(COLOR_BUCKETS),
+};
+function colorBucket(ci) {
+  if (!ci || ci.length === 0) return 'Colorless';
+  if (ci.length > 1) return 'Multicolor';
+  return {W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green'}[ci[0]] || 'Colorless';
+}
+function primaryType(typeLine) {
+  if (!typeLine) return 'Other';
+  const t = typeLine.toLowerCase();
+  for (const k of ['land', 'creature', 'planeswalker', 'instant', 'sorcery', 'enchantment', 'artifact']) {
+    if (t.includes(k)) return k;
+  }
+  return 'Other';
+}
+const TYPE_COLOR = {
+  'land': '#9CA3AF', 'creature': '#22C55E', 'planeswalker': '#FBBF24',
+  'instant': '#3B82F6', 'sorcery': '#7A6FA0', 'enchantment': '#F5EEDC',
+  'artifact': '#A5A5A5', 'Other': '#666666',
+};
+function viridis(t) {
+  t = Math.max(0, Math.min(1, t));
+  const stops = [
+    [0.267, 0.005, 0.329], [0.231, 0.318, 0.545],
+    [0.128, 0.567, 0.551], [0.369, 0.788, 0.382],
+    [0.993, 0.906, 0.144],
+  ];
+  const i = Math.min(Math.floor(t * (stops.length - 1)), stops.length - 2);
+  const f = t * (stops.length - 1) - i;
+  return [
+    stops[i][0] + (stops[i+1][0] - stops[i][0]) * f,
+    stops[i][1] + (stops[i+1][1] - stops[i][1]) * f,
+    stops[i][2] + (stops[i+1][2] - stops[i][2]) * f,
+  ];
+}
+function rgbToHex(rgb) {
+  return '#' + rgb.map(c => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+}
+const edhrecRanks = POINT_META.map(c => c.edhrec_rank).filter(r => r != null);
+const EDHREC_MIN = Math.min(...edhrecRanks);
+const EDHREC_MAX = Math.max(...edhrecRanks);
+const prices = POINT_META.map(c => parseFloat(c.price_usd)).filter(p => !isNaN(p) && p > 0);
+const PRICE_LOG_MIN = Math.log10(Math.min(...prices));
+const PRICE_LOG_MAX = Math.log10(Math.max(...prices));
+const CMC_OVERLAY_MAX = 8;
+
+function nodeColorForCard(card) {
+  switch (filters.colorAxis) {
+    case 'identity':
+      return COLOR_HEX[colorBucket(card.color_identity)];
+    case 'edhrec': {
+      const r = card.edhrec_rank;
+      if (r == null) return '#444444';
+      const t = 1 - (r - EDHREC_MIN) / (EDHREC_MAX - EDHREC_MIN);
+      return rgbToHex(viridis(t));
+    }
+    case 'price': {
+      const p = parseFloat(card.price_usd);
+      if (isNaN(p) || p <= 0) return '#333333';
+      const t = (Math.log10(p) - PRICE_LOG_MIN) / (PRICE_LOG_MAX - PRICE_LOG_MIN);
+      return rgbToHex(viridis(t));
+    }
+    case 'type':
+      return TYPE_COLOR[primaryType(card.type_line)] || TYPE_COLOR.Other;
+    case 'cmc': {
+      const c = card.cmc;
+      if (c == null) return '#444444';
+      const t = Math.min(c, CMC_OVERLAY_MAX) / CMC_OVERLAY_MAX;
+      return rgbToHex(viridis(t));
+    }
+  }
+  return '#888888';
+}
+
+function cardVisible(card) {
+  if (!filters.visibleColors.has(colorBucket(card.color_identity))) return false;
+  if (filters.formats.size > 0) {
+    const leg = card.legalities || {};
+    let anyOk = false;
+    for (const f of filters.formats) {
+      if (leg[f] === 'legal') { anyOk = true; break; }
+    }
+    if (!anyOk) return false;
+  }
+  if (filters.sets.size > 0 && !filters.sets.has(card.set)) return false;
+  const cmc = card.cmc;
+  if (cmc != null) {
+    if (cmc < filters.cmcMin) return false;
+    if (filters.cmcMax < 11 && cmc > filters.cmcMax) return false;
+  }
+  return true;
+}
+
+// Refresh by re-applying the (same) accessor — 3d-force-graph re-evaluates closures.
+function applyFilters() {
+  graph.nodeColor(graph.nodeColor()).nodeVisibility(graph.nodeVisibility());
+}
+
 // Build graph data with FIXED positions (d3-force-3d respects fx/fy/fz to anchor nodes).
 const nodes = POINT_META.map((m, i) => ({
   id: m.oracle_id,
@@ -231,11 +414,13 @@ const graph = new ForceGraph3D(chartEl)
   .nodeOpacity(1.0)
   .enableNodeDrag(false)
   .nodeColor(node => {
-    if (state.selectedOid === null) return node.color;
+    const card = POINT_META[OID_TO_IDX[node.id]];
+    if (state.selectedOid === null) return nodeColorForCard(card);
     if (node.id === state.selectedOid) return '#FBBF24';
     if (state.highlightSet.has(node.id)) return '#FFFFFF';
-    return dim(node.color, 0.12);
+    return dim(nodeColorForCard(card), 0.12);
   })
+  .nodeVisibility(node => cardVisible(POINT_META[OID_TO_IDX[node.id]]))
   .nodeLabel(node => `<div style="font-weight:600">${escapeHtml(node.name)}</div>`)
   .linkColor(link => {
     if (state.selectedOid === null) return 'rgba(251,191,36,0.025)';
@@ -344,19 +529,124 @@ function renderNeighbors(oid) {
   });
 }
 
+// ===== Filter UI wiring =====
+document.getElementById('color-axis').addEventListener('change', (e) => {
+  filters.colorAxis = e.target.value;
+  applyFilters();
+});
+
+const formatChipsEl = document.getElementById('format-chips');
+formatChipsEl.innerHTML = FORMATS.map(f =>
+  `<span class="chip" data-format="${f}">${f}</span>`
+).join('');
+formatChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const f = el.dataset.format;
+    if (filters.formats.has(f)) { filters.formats.delete(f); el.classList.remove('active'); }
+    else { filters.formats.add(f); el.classList.add('active'); }
+    applyFilters();
+  });
+});
+
+const SETS_IN_DATA = [...new Set(POINT_META.map(c => c.set).filter(Boolean))].sort();
+const setInput = document.getElementById('set-input');
+const setOptionsEl = document.getElementById('set-options');
+const selectedSetsEl = document.getElementById('selected-sets');
+function renderSetOptions(query) {
+  const q = query.trim().toLowerCase();
+  const matches = SETS_IN_DATA.filter(s => s.includes(q) && !filters.sets.has(s)).slice(0, 30);
+  if (!matches.length) { setOptionsEl.classList.remove('open'); return; }
+  setOptionsEl.innerHTML = matches.map(s => `<div class="set-option" data-set="${s}">${s}</div>`).join('');
+  setOptionsEl.classList.add('open');
+  setOptionsEl.querySelectorAll('.set-option').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.add(el.dataset.set);
+      setInput.value = '';
+      setOptionsEl.classList.remove('open');
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+function renderSelectedSets() {
+  selectedSetsEl.innerHTML = [...filters.sets].sort().map(s =>
+    `<span class="selected-set-chip" data-set="${s}">${s} ×</span>`
+  ).join('');
+  selectedSetsEl.querySelectorAll('.selected-set-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.delete(el.dataset.set);
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+setInput.addEventListener('input', () => renderSetOptions(setInput.value));
+setInput.addEventListener('focus', () => renderSetOptions(setInput.value));
+document.addEventListener('click', (e) => {
+  if (!setInput.contains(e.target) && !setOptionsEl.contains(e.target)) setOptionsEl.classList.remove('open');
+});
+
+const cmcMin = document.getElementById('cmc-min');
+const cmcMax = document.getElementById('cmc-max');
+const cmcVals = document.getElementById('cmc-vals');
+function updateCmcLabel() {
+  const lo = parseInt(cmcMin.value);
+  const hi = parseInt(cmcMax.value);
+  cmcVals.textContent = `${lo}–${hi >= 11 ? '10+' : hi}`;
+}
+function onCmcChange() {
+  let lo = parseInt(cmcMin.value);
+  let hi = parseInt(cmcMax.value);
+  if (lo > hi) { if (this === cmcMin) { hi = lo; cmcMax.value = lo; } else { lo = hi; cmcMin.value = hi; } }
+  filters.cmcMin = lo;
+  filters.cmcMax = hi;
+  updateCmcLabel();
+  applyFilters();
+}
+cmcMin.addEventListener('input', onCmcChange);
+cmcMax.addEventListener('input', onCmcChange);
+updateCmcLabel();
+
+const colorChipsEl = document.getElementById('color-chips');
+colorChipsEl.innerHTML = COLOR_BUCKETS.map(b =>
+  `<span class="chip color-chip" style="background:${COLOR_HEX[b]}" data-color="${b}" title="${b}"></span>`
+).join('');
+colorChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const b = el.dataset.color;
+    if (filters.visibleColors.has(b)) { filters.visibleColors.delete(b); el.classList.add('off'); }
+    else { filters.visibleColors.add(b); el.classList.remove('off'); }
+    applyFilters();
+  });
+});
+
+document.getElementById('filter-header').addEventListener('click', () => {
+  document.getElementById('filter-section').classList.toggle('collapsed');
+  const span = document.getElementById('filter-header').querySelector('span');
+  span.textContent = span.textContent.startsWith('▾')
+    ? span.textContent.replace('▾', '▸') : span.textContent.replace('▸', '▾');
+});
+
 // Search
 const searchInput = document.getElementById('search');
 const searchResults = document.getElementById('search-results');
 searchInput.addEventListener('input', (e) => {
   const q = e.target.value.trim().toLowerCase();
   if (!q) { searchResults.classList.remove('open'); searchResults.innerHTML = ''; return; }
-  const matches = NAME_INDEX
-    .filter(c => c.name.toLowerCase().includes(q))
-    .sort((a, b) => a.name.length - b.name.length)
-    .slice(0, 12);
+  const words = q.split(/\s+/).filter(Boolean);
+  const matches = [];
+  for (let i = 0; i < NAME_INDEX.length; i++) {
+    const nm = NAME_INDEX[i].name.toLowerCase();
+    const txt = (POINT_META[i].oracle_text || '').toLowerCase();
+    const nameHit = words.every(w => nm.includes(w));
+    const textHit = !nameHit && words.every(w => txt.includes(w));
+    if (nameHit || textHit) matches.push({...NAME_INDEX[i], textHit, score: nm.length});
+  }
   if (!matches.length) { searchResults.classList.remove('open'); return; }
-  searchResults.innerHTML = matches.map(m =>
-    `<div class="search-result" data-oid="${m.oid}">${escapeHtml(m.name)}<span class="sr-type">${escapeHtml(m.type)}</span></div>`
+  matches.sort((a, b) => a.score - b.score);
+  const top = matches.slice(0, 15);
+  searchResults.innerHTML = top.map(m =>
+    `<div class="search-result" data-oid="${m.oid}">${escapeHtml(m.name)}<span class="sr-type">${escapeHtml(m.type)}</span>${m.textHit ? '<span class="sr-text-hit">[text]</span>' : ''}</div>`
   ).join('');
   searchResults.classList.add('open');
   searchResults.querySelectorAll('.search-result').forEach(el => {
