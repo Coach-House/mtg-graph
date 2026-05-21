@@ -13,7 +13,7 @@ import argparse
 import subprocess
 from pathlib import Path
 
-from mtg_graph import build_text_profiles, cluster, embed, load_and_filter, reduce, visualize
+from mtg_graph import build_text_profiles, cluster, embed, knn, load_and_filter, reduce, visualize
 
 
 def main() -> None:
@@ -47,6 +47,9 @@ def main() -> None:
     print("\n=== Stage 4.5: cluster ===")
     cluster.run(cards_path=output_dir / "cards_top5k.parquet", output_dir=output_dir)
 
+    print("\n=== Stage 4.6: knn ===")
+    knn.run(cards_path=output_dir / "cards_top5k.parquet", output_dir=output_dir)
+
     print("\n=== Stage 5: visualize ===")
     outputs = visualize.run(
         cards_path=output_dir / "cards_top5k.parquet",
@@ -57,8 +60,13 @@ def main() -> None:
     for key, path in outputs.items():
         print(f"  {key}: {path}")
 
-    if args.open != "none" and args.open in outputs:
-        subprocess.run(["open", str(outputs[args.open])], check=False)
+    if args.open != "none":
+        # Prefer local model; fall back to openai.
+        for model in ("local", "openai"):
+            key = f"{args.open}_{model}"
+            if key in outputs:
+                subprocess.run(["open", str(outputs[key])], check=False)
+                break
 
 
 if __name__ == "__main__":

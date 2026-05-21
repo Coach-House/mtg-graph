@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{TITLE}}</title>
+<style>
+:root {
+  --bg: #0a0a0a;
+  --panel-bg: #161616;
+  --panel-border: #2a2a2a;
+  --text: #e8e8e8;
+  --text-dim: #888;
+  --accent: #c9a227;
+  --accent-bright: #fbbf24;
+  --input-bg: #1f1f1f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; height: 100%; overflow: hidden; }
+#app { display: flex; height: 100vh; width: 100vw; }
+#chart-wrap { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--bg); }
+#chart { width: 100%; height: 100%; display: block; }
+#labels-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.cluster-label { position: absolute; color: #F0F0F0; font-size: 11px; font-weight: 700; font-family: 'Arial Black', sans-serif; text-shadow: 0 0 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,0.9); white-space: nowrap; transform: translate(-50%, -50%); }
+
+#panel {
+  width: 420px;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--panel-border);
+  overflow-y: auto;
+  transition: width 0.2s ease;
+  flex-shrink: 0;
+}
+#panel.collapsed { width: 0; border-left: none; }
+#panel.collapsed > * { display: none; }
+#toggle-panel {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 60px;
+  background: var(--panel-border);
+  color: var(--text);
+  border: none;
+  cursor: pointer;
+  border-radius: 4px 0 0 4px;
+  font-size: 12px;
+  font-family: monospace;
+  z-index: 10;
+}
+.panel-inner { padding: 16px; }
+.mode-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
+.mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+.mode-switch { color: var(--accent); text-decoration: none; font-size: 12px; }
+.mode-switch:hover { color: var(--accent-bright); }
+.search-row { position: relative; margin-bottom: 16px; }
+#search {
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  padding: 8px 10px;
+  font-size: 14px;
+  border-radius: 4px;
+  outline: none;
+}
+#search:focus { border-color: var(--accent); }
+#search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-top: none;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 20;
+  display: none;
+}
+#search-results.open { display: block; }
+.search-result {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.search-result:hover { background: var(--panel-border); color: var(--accent-bright); }
+.search-result .sr-type { color: var(--text-dim); font-size: 11px; margin-left: 6px; }
+
+.placeholder { color: var(--text-dim); padding: 40px 16px; text-align: center; font-size: 14px; line-height: 1.6; }
+.card-detail { display: none; }
+.card-detail.open { display: block; }
+.card-img-wrap { text-align: center; margin-bottom: 12px; }
+.card-img-wrap img { max-width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+.card-name { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.card-meta { color: var(--text-dim); font-size: 12px; margin-bottom: 12px; }
+.card-meta span + span::before { content: " · "; margin: 0 4px; }
+.card-text { font-size: 13px; line-height: 1.55; background: var(--input-bg); padding: 10px 12px; border-radius: 4px; border-left: 3px solid var(--accent); white-space: pre-wrap; margin-bottom: 12px; }
+.card-flavor { font-size: 12px; line-height: 1.5; color: var(--text-dim); font-style: italic; margin-bottom: 12px; padding: 0 4px; }
+.card-prices { font-size: 12px; color: var(--text-dim); margin-bottom: 16px; }
+.card-prices strong { color: var(--text); }
+
+.section-header { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--panel-border); }
+.neighbor-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.neighbor {
+  display: flex; flex-direction: column;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 6px; cursor: pointer;
+  transition: border-color 0.1s;
+}
+.neighbor:hover { border-color: var(--accent); }
+.neighbor img { width: 100%; border-radius: 3px; }
+.neighbor .n-name { font-size: 11px; margin-top: 4px; line-height: 1.3; }
+.actions { display: flex; gap: 8px; margin-top: 12px; }
+.actions button, .actions a {
+  flex: 1; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--panel-border);
+  padding: 7px 10px; font-size: 12px; border-radius: 4px;
+  cursor: pointer; text-decoration: none; text-align: center;
+}
+.actions button:hover, .actions a:hover { border-color: var(--accent); color: var(--accent-bright); }
+
+#status-bar { position: absolute; bottom: 10px; left: 14px; font-size: 11px; color: var(--text-dim); pointer-events: none; z-index: 5; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="chart-wrap">
+    <div id="chart"></div>
+    <div id="labels-layer"></div>
+    <div id="status-bar">{{STATUS_HINT}}</div>
+  </div>
+  <button id="toggle-panel" title="Toggle panel">«</button>
+  <aside id="panel">
+    <div class="panel-inner">
+      <div class="mode-row">
+        <span class="mode-label">{{MODE_LABEL}}</span>
+        <a class="mode-switch" href="{{COUNTERPART_HREF}}">{{COUNTERPART_LABEL}} →</a>
+      </div>
+      <div class="search-row">
+        <input type="text" id="search" placeholder="Search card name…" autocomplete="off" />
+        <div id="search-results"></div>
+      </div>
+      <div id="placeholder" class="placeholder">
+        Click a point or search a card.<br>
+        Selected card lights up gold and its 20 semantic neighbors get outlined with edges.
+      </div>
+      <div id="card-detail" class="card-detail">
+        <div class="card-img-wrap"><img id="card-img" alt="" /></div>
+        <div class="card-name" id="card-name"></div>
+        <div class="card-meta">
+          <span id="card-type"></span>
+          <span id="card-mana"></span>
+          <span id="card-rarity"></span>
+        </div>
+        <div class="card-text" id="card-text"></div>
+        <div class="card-flavor" id="card-flavor"></div>
+        <div class="card-prices" id="card-prices"></div>
+        <div class="actions">
+          <button id="clear-selection">Clear</button>
+          <a id="scryfall-link" href="#" target="_blank" rel="noopener">View on Scryfall ↗</a>
+        </div>
+        <div class="section-header">Nearest neighbors (semantic)</div>
+        <div class="neighbor-list" id="neighbor-list"></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script id="point-meta" type="application/json">{{POINT_META_JSON}}</script>
+<script id="point-positions" type="application/json">{{POINT_POSITIONS_JSON}}</script>
+<script id="point-colors" type="application/json">{{POINT_COLORS_JSON}}</script>
+<script id="links-data" type="application/json">{{LINKS_JSON}}</script>
+<script id="cluster-labels" type="application/json">{{CLUSTER_LABELS_JSON}}</script>
+<script id="oid-to-idx" type="application/json">{{OID_TO_IDX_JSON}}</script>
+<script id="idx-to-oid" type="application/json">{{IDX_TO_OID_JSON}}</script>
+<script id="knn-by-oid" type="application/json">{{KNN_BY_OID_JSON}}</script>
+
+<script type="module">
+import { Graph } from 'https://esm.sh/@cosmos.gl/graph@2.6.4';
+
+const POINT_META = JSON.parse(document.getElementById('point-meta').textContent);
+const POINT_POSITIONS = new Float32Array(JSON.parse(document.getElementById('point-positions').textContent));
+const POINT_COLORS = new Float32Array(JSON.parse(document.getElementById('point-colors').textContent));
+const LINKS = new Float32Array(JSON.parse(document.getElementById('links-data').textContent));
+const CLUSTER_LABELS = JSON.parse(document.getElementById('cluster-labels').textContent);
+const OID_TO_IDX = JSON.parse(document.getElementById('oid-to-idx').textContent);
+const IDX_TO_OID = JSON.parse(document.getElementById('idx-to-oid').textContent);
+const KNN_BY_OID = JSON.parse(document.getElementById('knn-by-oid').textContent);
+
+const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
+
+let selectedOid = null;
+const chartDiv = document.getElementById('chart');
+const labelsLayer = document.getElementById('labels-layer');
+
+const config = {
+  spaceSize: 4096,
+  enableSimulation: false,
+  backgroundColor: '#0a0a0a',
+  pointSize: 4,
+  pointSizeScale: 1.0,
+  pointGreyoutOpacity: 0.07,
+  scalePointsOnZoom: true,
+
+  linkColor: '#FBBF24',
+  linkWidth: 0.6,
+  linkOpacity: 0.04,
+  linkGreyoutOpacity: 0.0,
+  linkArrows: false,
+  curvedLinks: false,
+
+  fitViewOnInit: true,
+  fitViewPadding: 0.08,
+  enableDrag: false,
+
+  hoveredPointCursor: 'pointer',
+  renderHoveredPointRing: true,
+  hoveredPointRingColor: '#FBBF24',
+
+  focusedPointRingColor: '#FBBF24',
+
+  onClick: handleClick,
+  onZoom: () => requestAnimationFrame(updateClusterLabels),
+};
+
+const graph = new Graph(chartDiv, config);
+graph.setPointPositions(POINT_POSITIONS);
+graph.setPointColors(POINT_COLORS);
+graph.setLinks(LINKS);
+graph.render();
+
+// Build cluster label DOM nodes once.
+const labelElements = [];
+for (const lbl of CLUSTER_LABELS) {
+  const el = document.createElement('div');
+  el.className = 'cluster-label';
+  el.textContent = lbl.text;
+  labelsLayer.appendChild(el);
+  labelElements.push({el, x: lbl.x, y: lbl.y});
+}
+
+function updateClusterLabels() {
+  for (const {el, x, y} of labelElements) {
+    try {
+      const screen = graph.spaceToScreenPosition([x, y]);
+      el.style.transform = `translate(calc(${screen[0]}px - 50%), calc(${screen[1]}px - 50%))`;
+    } catch (e) { /* graph not ready yet */ }
+  }
+}
+
+// Kick label positioning periodically until graph is ready (fitViewOnInit fires async).
+let labelKick = 0;
+function kickLabels() {
+  updateClusterLabels();
+  labelKick++;
+  if (labelKick < 40) setTimeout(kickLabels, 100);
+}
+kickLabels();
+
+function handleClick(index) {
+  if (index === undefined || index === null) {
+    clearSelection();
+    return;
+  }
+  const oid = IDX_TO_OID[index];
+  if (oid) selectCard(oid);
+}
+
+function selectCard(oid) {
+  const idx = OID_TO_IDX[oid];
+  if (idx === undefined) return;
+  selectedOid = oid;
+  // selectPointByIndex with selectAdjacentPoints=true highlights selected + neighbors via the links graph.
+  graph.selectPointByIndex(idx, true);
+  graph.zoomToPointByIndex(idx, 1200, undefined, true);
+  renderPanel(oid);
+}
+
+function clearSelection() {
+  selectedOid = null;
+  graph.unselectPoints();
+  document.getElementById('placeholder').style.display = 'block';
+  document.getElementById('card-detail').classList.remove('open');
+}
+
+function renderPanel(oid) {
+  const card = POINT_META[OID_TO_IDX[oid]];
+  if (!card) return;
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('card-detail').classList.add('open');
+  document.getElementById('card-img').src = card.image_normal || card.image_small || '';
+  document.getElementById('card-img').alt = card.name;
+  document.getElementById('card-name').textContent = card.name;
+  document.getElementById('card-type').textContent = card.type_line || '';
+  document.getElementById('card-mana').textContent = card.mana_cost || '';
+  document.getElementById('card-rarity').textContent = card.rarity || '';
+  document.getElementById('card-text').textContent = card.oracle_text || '';
+  const flavor = document.getElementById('card-flavor');
+  if (card.flavor_text) { flavor.textContent = '"' + card.flavor_text + '"'; flavor.style.display = ''; }
+  else { flavor.style.display = 'none'; }
+  const prices = document.getElementById('card-prices');
+  const bits = [];
+  if (card.price_usd) bits.push('<strong>$' + card.price_usd + '</strong>');
+  if (card.price_usd_foil) bits.push('foil <strong>$' + card.price_usd_foil + '</strong>');
+  if (card.set_name) bits.push(escapeHtml(card.set_name));
+  prices.innerHTML = bits.join(' · ');
+  document.getElementById('scryfall-link').href = card.scryfall_uri || '#';
+  renderNeighbors(oid);
+}
+
+function renderNeighbors(oid) {
+  const list = document.getElementById('neighbor-list');
+  const neighbors = KNN_BY_OID[oid] || [];
+  list.innerHTML = neighbors.slice(0, 10).map(noid => {
+    const c = POINT_META[OID_TO_IDX[noid]];
+    if (!c) return '';
+    return `<div class="neighbor" data-oid="${noid}">
+      <img src="${c.image_small || c.image_normal || ''}" alt="${escapeAttr(c.name)}" loading="lazy" />
+      <div class="n-name">${escapeHtml(c.name)}</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.neighbor').forEach(el => {
+    el.addEventListener('click', () => selectCard(el.dataset.oid));
+  });
+}
+
+// Search
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) { searchResults.classList.remove('open'); searchResults.innerHTML = ''; return; }
+  const matches = NAME_INDEX
+    .filter(c => c.name.toLowerCase().includes(q))
+    .sort((a, b) => a.name.length - b.name.length)
+    .slice(0, 12);
+  if (!matches.length) { searchResults.classList.remove('open'); return; }
+  searchResults.innerHTML = matches.map(m =>
+    `<div class="search-result" data-oid="${m.oid}">${escapeHtml(m.name)}<span class="sr-type">${escapeHtml(m.type)}</span></div>`
+  ).join('');
+  searchResults.classList.add('open');
+  searchResults.querySelectorAll('.search-result').forEach(el => {
+    el.addEventListener('click', () => {
+      const oid = el.dataset.oid;
+      selectCard(oid);
+      searchInput.value = POINT_META[OID_TO_IDX[oid]].name;
+      searchResults.classList.remove('open');
+    });
+  });
+});
+document.addEventListener('click', (e) => {
+  if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+    searchResults.classList.remove('open');
+  }
+});
+
+// Panel toggle
+const panel = document.getElementById('panel');
+const toggleBtn = document.getElementById('toggle-panel');
+toggleBtn.addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+  toggleBtn.textContent = panel.classList.contains('collapsed') ? '»' : '«';
+});
+
+document.getElementById('clear-selection').addEventListener('click', clearSelection);
+
+window.addEventListener('resize', () => requestAnimationFrame(updateClusterLabels));
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return escapeHtml(s); }
+</script>
+</body>
+</html>

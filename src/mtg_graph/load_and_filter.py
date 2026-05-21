@@ -15,6 +15,14 @@ KEEP_LAYOUTS = {
 }
 
 
+def _pick_image(uris, key: str) -> str | None:
+    return uris.get(key) if isinstance(uris, dict) else None
+
+
+def _pick_price(prices, key: str) -> str | None:
+    return prices.get(key) if isinstance(prices, dict) else None
+
+
 def run(
     data_dir: Path = Path("data"),
     output_dir: Path = Path("output"),
@@ -50,14 +58,19 @@ def run(
     df = df.sort_values("edhrec_rank").head(n_cards).reset_index(drop=True)
     print(f"  Top {len(df):,} by edhrec_rank")
 
-    df["image_small"] = df["image_uris"].apply(
-        lambda u: u.get("small") if isinstance(u, dict) else None
-    )
+    df["image_small"] = df["image_uris"].apply(lambda u: _pick_image(u, "small"))
+    df["image_normal"] = df["image_uris"].apply(lambda u: _pick_image(u, "normal"))
+    df["image_art_crop"] = df["image_uris"].apply(lambda u: _pick_image(u, "art_crop"))
+    df["price_usd"] = df["prices"].apply(lambda p: _pick_price(p, "usd"))
+    df["price_usd_foil"] = df["prices"].apply(lambda p: _pick_price(p, "usd_foil"))
 
     cols = [
         "oracle_id", "name", "mana_cost", "type_line", "oracle_text",
-        "keywords", "colors", "color_identity", "rarity",
-        "edhrec_rank", "image_small",
+        "flavor_text", "keywords", "colors", "color_identity", "rarity",
+        "set_name", "edhrec_rank",
+        "image_small", "image_normal", "image_art_crop",
+        "price_usd", "price_usd_foil",
+        "scryfall_uri",
     ]
     for col in cols:
         if col not in df.columns:
