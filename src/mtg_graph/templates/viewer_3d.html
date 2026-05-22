@@ -19,16 +19,9 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 #app { display: flex; height: 100vh; width: 100vw; }
 #chart-wrap { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--bg); }
 #chart { width: 100%; height: 100%; display: block; }
-
-.scene-tooltip {
-  background: rgba(17,17,17,0.95) !important;
-  color: #e8e8e8 !important;
-  border: 1px solid var(--panel-border) !important;
-  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif !important;
-  font-size: 13px !important;
-  padding: 6px 10px !important;
-  border-radius: 4px !important;
-}
+#labels-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.cluster-label { position: absolute; color: #F0F0F0; font-size: 11px; font-weight: 700; font-family: 'Arial Black', sans-serif; text-shadow: 0 0 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,0.9); white-space: nowrap; transform: translate(-50%, -50%); }
+#hover-tooltip { position: absolute; pointer-events: none; background: rgba(17,17,17,0.95); color: #e8e8e8; border: 1px solid var(--panel-border); font-size: 13px; padding: 6px 10px; border-radius: 4px; display: none; z-index: 15; }
 
 #panel {
   width: 420px;
@@ -166,12 +159,24 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .actions button:hover, .actions a:hover { border-color: var(--accent); color: var(--accent-bright); }
 
 #status-bar { position: absolute; bottom: 10px; left: 14px; font-size: 11px; color: var(--text-dim); pointer-events: none; z-index: 5; }
+
+.color-legend { margin-top: 8px; }
+.legend-categorical { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); font-size: 11px; line-height: 1.4; }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
+.legend-gradient .bar { height: 10px; border-radius: 2px; }
+.legend-gradient .labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+.check-row { display: flex !important; align-items: center; gap: 6px; cursor: pointer; color: var(--text-dim); font-size: 11px; margin-bottom: 0 !important; }
+.check-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+.toggle-row { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="chart-wrap">
     <div id="chart"></div>
+    <div id="labels-layer"></div>
+    <div id="hover-tooltip"></div>
     <div id="status-bar">{{STATUS_HINT}}</div>
   </div>
   <button id="toggle-panel" title="Toggle panel">«</button>
@@ -194,11 +199,17 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
               <option value="price">Price (USD)</option>
               <option value="type">Card type</option>
               <option value="cmc">Mana value</option>
+              <option value="release">Release date</option>
             </select>
+            <div id="color-legend" class="color-legend"></div>
           </div>
           <div class="filter-row">
             <label>Format</label>
             <div class="format-chips" id="format-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label>Card type</label>
+            <div class="format-chips" id="type-chips"></div>
           </div>
           <div class="filter-row">
             <label for="set-input">Set</label>
@@ -214,8 +225,25 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
             </div>
           </div>
           <div class="filter-row">
+            <label>Price <span class="cmc-vals" id="price-vals">$0 – Any</span></label>
+            <div class="cmc-row">
+              <input type="range" id="price-min" min="0" max="14" step="1" value="0" />
+              <input type="range" id="price-max" min="0" max="14" step="1" value="14" />
+            </div>
+          </div>
+          <div class="filter-row">
             <label>Color identity visible</label>
             <div class="color-chips" id="color-chips"></div>
+          </div>
+          <div class="filter-row toggle-row">
+            <label class="check-row">
+              <input type="checkbox" id="show-labels" checked />
+              Show cluster labels
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="hide-sparse-labels" checked />
+              Hide small clusters
+            </label>
           </div>
         </div>
       </div>
@@ -254,15 +282,30 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 <script id="point-colors-hex" type="application/json">{{POINT_COLORS_HEX_JSON}}</script>
 <script id="knn-by-oid" type="application/json">{{KNN_BY_OID_JSON}}</script>
 <script id="oid-to-idx" type="application/json">{{OID_TO_IDX_JSON}}</script>
+<script id="cluster-labels" type="application/json">{{CLUSTER_LABELS_JSON}}</script>
+
+<script>
+// Surface uncaught errors as a visible banner so the user doesn't see only a black screen.
+window.addEventListener('error', (e) => {
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#7f1d1d;color:#fff;padding:10px 14px;font:13px monospace;z-index:9999;white-space:pre-wrap';
+  banner.textContent = 'JS error: ' + (e.message || e.error) + (e.filename ? ' @ ' + e.filename + ':' + e.lineno : '');
+  document.body.appendChild(banner);
+});
+</script>
 
 <script type="module">
-import ForceGraph3D from 'https://esm.sh/3d-force-graph@1.73.4';
+import * as THREE from 'https://esm.sh/three@0.160.0';
+import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 
 const POINT_META = JSON.parse(document.getElementById('point-meta').textContent);
 const POSITIONS = JSON.parse(document.getElementById('point-positions-3d').textContent);
 const COLORS_HEX = JSON.parse(document.getElementById('point-colors-hex').textContent);
 const KNN_BY_OID = JSON.parse(document.getElementById('knn-by-oid').textContent);
 const OID_TO_IDX = JSON.parse(document.getElementById('oid-to-idx').textContent);
+const CLUSTER_LABELS = JSON.parse(document.getElementById('cluster-labels').textContent);
+const IDX_TO_OID = POINT_META.map(c => c.oracle_id);
+const N = POINT_META.length;
 
 const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
 
@@ -273,12 +316,25 @@ const COLOR_HEX = {
   'Green': '#22C55E', 'Multicolor': '#FBBF24', 'Colorless': '#9CA3AF',
 };
 const FORMATS = ['standard', 'pioneer', 'modern', 'legacy', 'vintage', 'commander', 'pauper', 'brawl'];
+const PRICE_STOPS = [0, 0.10, 0.25, 0.50, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, Infinity];
+const PRICE_MAX_IDX = PRICE_STOPS.length - 1;
+function fmtPrice(i) {
+  const p = PRICE_STOPS[i];
+  if (p === 0) return '$0';
+  if (!isFinite(p)) return 'Any';
+  if (p < 10) return '$' + p.toFixed(2);
+  return '$' + p;
+}
+
 const filters = {
   colorAxis: 'identity',
   formats: new Set(),
+  types: new Set(),
   sets: new Set(),
   cmcMin: 0,
   cmcMax: 11,
+  priceMin: 0,
+  priceMax: PRICE_MAX_IDX,
   visibleColors: new Set(COLOR_BUCKETS),
 };
 function colorBucket(ci) {
@@ -286,10 +342,14 @@ function colorBucket(ci) {
   if (ci.length > 1) return 'Multicolor';
   return {W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green'}[ci[0]] || 'Colorless';
 }
+// Detection priority puts dual-faced front-face types first so e.g.
+// "Battle — Siege // Creature — Dinosaur" classifies as 'battle'.
+const TYPE_DETECT = ['battle', 'planeswalker', 'land', 'creature', 'instant', 'sorcery', 'enchantment', 'artifact'];
+const TYPE_ORDER = ['land', 'creature', 'planeswalker', 'instant', 'sorcery', 'enchantment', 'artifact', 'battle'];
 function primaryType(typeLine) {
   if (!typeLine) return 'Other';
   const t = typeLine.toLowerCase();
-  for (const k of ['land', 'creature', 'planeswalker', 'instant', 'sorcery', 'enchantment', 'artifact']) {
+  for (const k of TYPE_DETECT) {
     if (t.includes(k)) return k;
   }
   return 'Other';
@@ -297,21 +357,23 @@ function primaryType(typeLine) {
 const TYPE_COLOR = {
   'land': '#9CA3AF', 'creature': '#22C55E', 'planeswalker': '#FBBF24',
   'instant': '#3B82F6', 'sorcery': '#7A6FA0', 'enchantment': '#F5EEDC',
-  'artifact': '#A5A5A5', 'Other': '#666666',
+  'artifact': '#A5A5A5', 'battle': '#EC4899', 'Other': '#666666',
 };
-function viridis(t) {
+// Weather-map heatmap: deep blue (low) → cyan → yellow → orange → red (high).
+const HEATMAP_HEX = ['#1e40af', '#06b6d4', '#fbbf24', '#f97316', '#dc2626'];
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+}
+const HEATMAP_RGB = HEATMAP_HEX.map(hexToRgb);
+function heatmap(t) {
   t = Math.max(0, Math.min(1, t));
-  const stops = [
-    [0.267, 0.005, 0.329], [0.231, 0.318, 0.545],
-    [0.128, 0.567, 0.551], [0.369, 0.788, 0.382],
-    [0.993, 0.906, 0.144],
-  ];
-  const i = Math.min(Math.floor(t * (stops.length - 1)), stops.length - 2);
-  const f = t * (stops.length - 1) - i;
+  const i = Math.min(Math.floor(t * (HEATMAP_RGB.length - 1)), HEATMAP_RGB.length - 2);
+  const f = t * (HEATMAP_RGB.length - 1) - i;
   return [
-    stops[i][0] + (stops[i+1][0] - stops[i][0]) * f,
-    stops[i][1] + (stops[i+1][1] - stops[i][1]) * f,
-    stops[i][2] + (stops[i+1][2] - stops[i][2]) * f,
+    HEATMAP_RGB[i][0] + (HEATMAP_RGB[i+1][0] - HEATMAP_RGB[i][0]) * f,
+    HEATMAP_RGB[i][1] + (HEATMAP_RGB[i+1][1] - HEATMAP_RGB[i][1]) * f,
+    HEATMAP_RGB[i][2] + (HEATMAP_RGB[i+1][2] - HEATMAP_RGB[i][2]) * f,
   ];
 }
 function rgbToHex(rgb) {
@@ -324,8 +386,19 @@ const prices = POINT_META.map(c => parseFloat(c.price_usd)).filter(p => !isNaN(p
 const PRICE_LOG_MIN = Math.log10(Math.min(...prices));
 const PRICE_LOG_MAX = Math.log10(Math.max(...prices));
 const CMC_OVERLAY_MAX = 8;
+const DATE_MS = new Float64Array(POINT_META.length);
+let DATE_MIN_MS = Infinity, DATE_MAX_MS = -Infinity;
+for (let i = 0; i < POINT_META.length; i++) {
+  const s = POINT_META[i].released_at;
+  const ms = s ? Date.parse(s) : NaN;
+  DATE_MS[i] = ms;
+  if (!isNaN(ms)) {
+    if (ms < DATE_MIN_MS) DATE_MIN_MS = ms;
+    if (ms > DATE_MAX_MS) DATE_MAX_MS = ms;
+  }
+}
 
-function nodeColorForCard(card) {
+function nodeColorForCard(card, idx) {
   switch (filters.colorAxis) {
     case 'identity':
       return COLOR_HEX[colorBucket(card.color_identity)];
@@ -333,13 +406,13 @@ function nodeColorForCard(card) {
       const r = card.edhrec_rank;
       if (r == null) return '#444444';
       const t = 1 - (r - EDHREC_MIN) / (EDHREC_MAX - EDHREC_MIN);
-      return rgbToHex(viridis(t));
+      return rgbToHex(heatmap(t));
     }
     case 'price': {
       const p = parseFloat(card.price_usd);
       if (isNaN(p) || p <= 0) return '#333333';
       const t = (Math.log10(p) - PRICE_LOG_MIN) / (PRICE_LOG_MAX - PRICE_LOG_MIN);
-      return rgbToHex(viridis(t));
+      return rgbToHex(heatmap(t));
     }
     case 'type':
       return TYPE_COLOR[primaryType(card.type_line)] || TYPE_COLOR.Other;
@@ -347,7 +420,13 @@ function nodeColorForCard(card) {
       const c = card.cmc;
       if (c == null) return '#444444';
       const t = Math.min(c, CMC_OVERLAY_MAX) / CMC_OVERLAY_MAX;
-      return rgbToHex(viridis(t));
+      return rgbToHex(heatmap(t));
+    }
+    case 'release': {
+      const ms = DATE_MS[idx];
+      if (isNaN(ms)) return '#444444';
+      const t = (ms - DATE_MIN_MS) / (DATE_MAX_MS - DATE_MIN_MS);
+      return rgbToHex(heatmap(t));
     }
   }
   return '#888888';
@@ -363,130 +442,346 @@ function cardVisible(card) {
     }
     if (!anyOk) return false;
   }
+  if (filters.types.size > 0 && !filters.types.has(primaryType(card.type_line))) return false;
   if (filters.sets.size > 0 && !filters.sets.has(card.set)) return false;
   const cmc = card.cmc;
   if (cmc != null) {
     if (cmc < filters.cmcMin) return false;
     if (filters.cmcMax < 11 && cmc > filters.cmcMax) return false;
   }
+  if (filters.priceMin > 0 || filters.priceMax < PRICE_MAX_IDX) {
+    const p = parseFloat(card.price_usd);
+    if (!isNaN(p) && p > 0) {
+      if (p < PRICE_STOPS[filters.priceMin]) return false;
+      const hi = PRICE_STOPS[filters.priceMax];
+      if (isFinite(hi) && p > hi) return false;
+    }
+  }
   return true;
 }
 
-// Refresh by re-applying the (same) accessor — 3d-force-graph re-evaluates closures.
-function applyFilters() {
-  graph.nodeColor(graph.nodeColor()).nodeVisibility(graph.nodeVisibility());
+// ===== three.js scene =====
+const chartEl = document.getElementById('chart');
+const labelsLayer = document.getElementById('labels-layer');
+const hoverTooltip = document.getElementById('hover-tooltip');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0a0a0a');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(chartEl.clientWidth, chartEl.clientHeight);
+chartEl.appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(60, chartEl.clientWidth / chartEl.clientHeight, 0.1, 5000);
+
+// Compute bounding box for initial camera framing.
+const bbox = {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity};
+for (let i = 0; i < N; i++) {
+  const x = POSITIONS[i*3], y = POSITIONS[i*3+1], z = POSITIONS[i*3+2];
+  if (x < bbox.minX) bbox.minX = x;
+  if (x > bbox.maxX) bbox.maxX = x;
+  if (y < bbox.minY) bbox.minY = y;
+  if (y > bbox.maxY) bbox.maxY = y;
+  if (z < bbox.minZ) bbox.minZ = z;
+  if (z > bbox.maxZ) bbox.maxZ = z;
+}
+const cx = (bbox.minX + bbox.maxX) / 2;
+const cy = (bbox.minY + bbox.maxY) / 2;
+const cz = (bbox.minZ + bbox.maxZ) / 2;
+const extent = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, bbox.maxZ - bbox.minZ);
+camera.position.set(cx, cy, cz + extent * 1.6);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(cx, cy, cz);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.zoomSpeed = 1.2;
+controls.rotateSpeed = 0.7;
+
+// ===== Points (one draw call for all N cards) =====
+const BASE_POINT_SIZE = 5.0;
+const SELECTED_SIZE = 18.0;
+const NEIGHBOR_SIZE = 9.0;
+const DIM_FACTOR = 0.15;
+
+const initialColors = new Float32Array(N * 3);
+const initialSizes = new Float32Array(N);
+for (let i = 0; i < N; i++) {
+  const rgb = hexToRgb(nodeColorForCard(POINT_META[i], i));
+  initialColors[i*3] = rgb[0];
+  initialColors[i*3+1] = rgb[1];
+  initialColors[i*3+2] = rgb[2];
+  initialSizes[i] = BASE_POINT_SIZE;
 }
 
-// Build graph data with FIXED positions (d3-force-3d respects fx/fy/fz to anchor nodes).
-const nodes = POINT_META.map((m, i) => ({
-  id: m.oracle_id,
-  name: m.name,
-  color: COLORS_HEX[i],
-  fx: POSITIONS[i * 3],
-  fy: POSITIONS[i * 3 + 1],
-  fz: POSITIONS[i * 3 + 2],
-  x: POSITIONS[i * 3],
-  y: POSITIONS[i * 3 + 1],
-  z: POSITIONS[i * 3 + 2],
-}));
+const pointsGeometry = new THREE.BufferGeometry();
+pointsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(POSITIONS), 3));
+pointsGeometry.setAttribute('color', new THREE.Float32BufferAttribute(initialColors, 3));
+pointsGeometry.setAttribute('size', new THREE.Float32BufferAttribute(initialSizes, 1));
 
-const links = [];
-for (const [srcOid, neighborOids] of Object.entries(KNN_BY_OID)) {
-  if (OID_TO_IDX[srcOid] === undefined) continue;
-  for (const tgtOid of neighborOids) {
-    if (OID_TO_IDX[tgtOid] === undefined) continue;
-    links.push({source: srcOid, target: tgtOid});
-  }
-}
+const pointsMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    uPixelRatio: { value: renderer.getPixelRatio() },
+    uViewportHeight: { value: chartEl.clientHeight },
+  },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    varying float vSize;
+    uniform float uPixelRatio;
+    uniform float uViewportHeight;
+    void main() {
+      vColor = color;
+      vSize = size;
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      // Perspective-scale: points stay constant world-size until camera near, then shrink with distance.
+      gl_PointSize = size * (uViewportHeight * 0.5 / -mvPosition.z) * uPixelRatio;
+      if (size <= 0.0) gl_PointSize = 0.0;
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    varying float vSize;
+    void main() {
+      if (vSize <= 0.0) discard;
+      vec2 c = 2.0 * gl_PointCoord - 1.0;
+      float r2 = dot(c, c);
+      // Hard cutoff at the disc edge — points are opaque so depth ordering works
+      // (closer points correctly occlude farther ones; no alpha-blend overdraw).
+      if (r2 > 0.92) discard;
+      gl_FragColor = vec4(vColor, 1.0);
+    }
+  `,
+  transparent: false,
+  depthWrite: true,
+  depthTest: true,
+});
 
+const points = new THREE.Points(pointsGeometry, pointsMaterial);
+scene.add(points);
+
+const colorAttr = pointsGeometry.attributes.color;
+const sizeAttr = pointsGeometry.attributes.size;
+
+// ===== KNN edge lines (populated on selection) =====
+const edgeGeometry = new THREE.BufferGeometry();
+edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
+const edgeMaterial = new THREE.LineBasicMaterial({ color: 0xFBBF24, transparent: true, opacity: 0.85 });
+const edgeLines = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+scene.add(edgeLines);
+
+// ===== Selection state =====
+const visibleByIndex = new Uint8Array(N).fill(1);
 const state = {
-  selectedOid: null,
-  highlightSet: new Set(),       // oids in the current highlight (selected + neighbors)
-  highlightedLinks: new Set(),   // link object refs whose source = selectedOid
+  selectedIdx: -1,
+  highlightSet: new Set(),  // indices of selected + neighbors
 };
 
-const chartEl = document.getElementById('chart');
-const graph = new ForceGraph3D(chartEl)
-  .graphData({nodes, links})
-  .backgroundColor('#0a0a0a')
-  .showNavInfo(false)
-  .nodeRelSize(1.2)
-  .nodeOpacity(1.0)
-  .enableNodeDrag(false)
-  .nodeColor(node => {
-    const card = POINT_META[OID_TO_IDX[node.id]];
-    if (state.selectedOid === null) return nodeColorForCard(card);
-    if (node.id === state.selectedOid) return '#FBBF24';
-    if (state.highlightSet.has(node.id)) return '#FFFFFF';
-    return dim(nodeColorForCard(card), 0.12);
-  })
-  .nodeVisibility(node => cardVisible(POINT_META[OID_TO_IDX[node.id]]))
-  .nodeLabel(node => `<div style="font-weight:600">${escapeHtml(node.name)}</div>`)
-  .linkColor(link => {
-    if (state.selectedOid === null) return 'rgba(251,191,36,0.025)';
-    if (state.highlightedLinks.has(link)) return 'rgba(251,191,36,0.95)';
-    return 'rgba(251,191,36,0)';
-  })
-  .linkWidth(link => state.highlightedLinks.has(link) ? 1.5 : 0.4)
-  .linkOpacity(0.7)
-  .cooldownTicks(0)
-  .onNodeClick(node => {
-    if (!node) return;
-    selectCard(node.id);
-  })
-  .onBackgroundClick(() => clearSelection());
+// ===== Filter / re-render =====
+function applyFilters() {
+  for (let i = 0; i < N; i++) {
+    const card = POINT_META[i];
+    visibleByIndex[i] = cardVisible(card) ? 1 : 0;
+  }
+  rebuildAttributes();
+  updateLabelVisibility();
+}
 
-// Make sure simulation doesn't run (we have fixed positions). Stop after first render.
-graph.d3Force('charge', null);
-graph.d3Force('center', null);
-graph.d3Force('link', null);
+function rebuildAttributes() {
+  for (let i = 0; i < N; i++) {
+    const card = POINT_META[i];
+    const baseRgb = hexToRgb(nodeColorForCard(card, i));
+    let r = baseRgb[0], g = baseRgb[1], b = baseRgb[2], size = BASE_POINT_SIZE;
+    if (state.selectedIdx >= 0) {
+      if (i === state.selectedIdx) {
+        r = 0.984; g = 0.749; b = 0.141;  // gold
+        size = SELECTED_SIZE;
+      } else if (state.highlightSet.has(i)) {
+        r = 1.0; g = 1.0; b = 1.0;
+        size = NEIGHBOR_SIZE;
+      } else {
+        r *= DIM_FACTOR; g *= DIM_FACTOR; b *= DIM_FACTOR;
+      }
+    }
+    colorAttr.array[i*3] = r;
+    colorAttr.array[i*3+1] = g;
+    colorAttr.array[i*3+2] = b;
+    sizeAttr.array[i] = visibleByIndex[i] ? size : 0;
+  }
+  colorAttr.needsUpdate = true;
+  sizeAttr.needsUpdate = true;
+}
 
 function selectCard(oid) {
-  if (OID_TO_IDX[oid] === undefined) return;
-  state.selectedOid = oid;
-  state.highlightSet = new Set([oid, ...(KNN_BY_OID[oid] || [])]);
-  state.highlightedLinks = new Set();
-  const neighborOids = new Set(KNN_BY_OID[oid] || []);
-  for (const link of links) {
-    const srcId = (link.source && link.source.id) || link.source;
-    const tgtId = (link.target && link.target.id) || link.target;
-    if (srcId === oid && neighborOids.has(tgtId)) state.highlightedLinks.add(link);
+  const idx = OID_TO_IDX[oid];
+  if (idx === undefined) return;
+  state.selectedIdx = idx;
+  const neighborOids = KNN_BY_OID[oid] || [];
+  const neighborIdxs = neighborOids.map(o => OID_TO_IDX[o]).filter(i => i !== undefined);
+  state.highlightSet = new Set(neighborIdxs);
+  rebuildAttributes();
+
+  // Build KNN edge lines (selected -> each neighbor).
+  const edgePos = new Float32Array(neighborIdxs.length * 6);
+  const sx = POSITIONS[idx*3], sy = POSITIONS[idx*3+1], sz = POSITIONS[idx*3+2];
+  for (let j = 0; j < neighborIdxs.length; j++) {
+    const ni = neighborIdxs[j];
+    edgePos[j*6]     = sx;
+    edgePos[j*6 + 1] = sy;
+    edgePos[j*6 + 2] = sz;
+    edgePos[j*6 + 3] = POSITIONS[ni*3];
+    edgePos[j*6 + 4] = POSITIONS[ni*3 + 1];
+    edgePos[j*6 + 5] = POSITIONS[ni*3 + 2];
   }
-  // Push the same accessor functions back to force a re-render of colors/widths.
-  graph
-    .nodeColor(graph.nodeColor())
-    .linkColor(graph.linkColor())
-    .linkWidth(graph.linkWidth());
-  // Move camera to look at the selected node.
-  const node = nodes[OID_TO_IDX[oid]];
-  if (node) {
-    const distance = 220;
-    const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z || 1);
-    graph.cameraPosition(
-      {x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio},
-      {x: node.x, y: node.y, z: node.z},
-      1200
-    );
+  edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(edgePos, 3));
+
+  // Camera tween to selected node (no full reframe — keep current zoom roughly).
+  const target = new THREE.Vector3(sx, sy, sz);
+  const startTarget = controls.target.clone();
+  const t0 = performance.now();
+  function tweenTarget() {
+    const u = Math.min(1, (performance.now() - t0) / 600);
+    const eased = 1 - Math.pow(1 - u, 3);
+    controls.target.lerpVectors(startTarget, target, eased);
+    if (u < 1) requestAnimationFrame(tweenTarget);
   }
+  tweenTarget();
+
   renderPanel(oid);
 }
 
 function clearSelection() {
-  state.selectedOid = null;
+  state.selectedIdx = -1;
   state.highlightSet = new Set();
-  state.highlightedLinks = new Set();
-  graph.nodeColor(graph.nodeColor()).linkColor(graph.linkColor()).linkWidth(graph.linkWidth());
+  rebuildAttributes();
+  edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
   document.getElementById('placeholder').style.display = 'block';
   document.getElementById('card-detail').classList.remove('open');
 }
 
-function dim(hex, alpha) {
-  const h = hex.replace('#', '');
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  return `rgba(${r},${g},${b},${alpha})`;
+// ===== Picking (Raycaster) =====
+const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = Math.max(1.5, extent * 0.006);
+const mouseNDC = new THREE.Vector2();
+
+function pickAt(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hits = raycaster.intersectObject(points, false);
+  // Filter hits: pick the closest visible point.
+  for (const h of hits) {
+    if (visibleByIndex[h.index]) return h.index;
+  }
+  return -1;
 }
+
+let mouseMoved = false;
+let downX = 0, downY = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  mouseMoved = false;
+  downX = e.clientX; downY = e.clientY;
+});
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (Math.abs(e.clientX - downX) > 3 || Math.abs(e.clientY - downY) > 3) mouseMoved = true;
+  // Hover tooltip
+  const idx = pickAt(e.clientX, e.clientY);
+  if (idx >= 0) {
+    hoverTooltip.textContent = POINT_META[idx].name;
+    hoverTooltip.style.left = (e.clientX + 12) + 'px';
+    hoverTooltip.style.top = (e.clientY + 12) + 'px';
+    hoverTooltip.style.display = 'block';
+  } else {
+    hoverTooltip.style.display = 'none';
+  }
+});
+renderer.domElement.addEventListener('pointerleave', () => { hoverTooltip.style.display = 'none'; });
+renderer.domElement.addEventListener('click', (e) => {
+  if (mouseMoved) return;  // orbit drag — not a click
+  const idx = pickAt(e.clientX, e.clientY);
+  if (idx >= 0) selectCard(IDX_TO_OID[idx]);
+  else clearSelection();
+});
+
+// ===== Cluster labels (DOM overlay, projected each frame) =====
+const labelElements = [];
+for (const lbl of CLUSTER_LABELS) {
+  const el = document.createElement('div');
+  el.className = 'cluster-label';
+  el.textContent = lbl.text;
+  labelsLayer.appendChild(el);
+  labelElements.push({el, pos: new THREE.Vector3(lbl.x, lbl.y, lbl.z), clusterId: lbl.cluster_id});
+}
+
+const SPARSE_LABEL_THRESHOLD = 10;
+const labelFilters = { showLabels: true, hideSparseLabels: true };
+const labelVisible = new Uint8Array(labelElements.length).fill(1);
+
+function updateLabelVisibility() {
+  if (!labelFilters.showLabels) {
+    for (let i = 0; i < labelElements.length; i++) {
+      labelVisible[i] = 0;
+      labelElements[i].el.style.display = 'none';
+    }
+    return;
+  }
+  if (!labelFilters.hideSparseLabels) {
+    for (let i = 0; i < labelElements.length; i++) {
+      labelVisible[i] = 1;
+    }
+    return;
+  }
+  const counts = new Map();
+  for (let i = 0; i < N; i++) {
+    if (!visibleByIndex[i]) continue;
+    const c = POINT_META[i].cluster;
+    if (c == null || c === -1) continue;
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+  for (let i = 0; i < labelElements.length; i++) {
+    const count = counts.get(labelElements[i].clusterId) || 0;
+    labelVisible[i] = count >= SPARSE_LABEL_THRESHOLD ? 1 : 0;
+  }
+}
+
+const projected = new THREE.Vector3();
+function repositionLabels() {
+  const width = chartEl.clientWidth;
+  const height = chartEl.clientHeight;
+  for (let i = 0; i < labelElements.length; i++) {
+    const lbl = labelElements[i];
+    if (!labelVisible[i]) { lbl.el.style.display = 'none'; continue; }
+    projected.copy(lbl.pos).project(camera);
+    if (projected.z > 1 || projected.z < -1) { lbl.el.style.display = 'none'; continue; }
+    const sx = (projected.x + 1) * 0.5 * width;
+    const sy = (-projected.y + 1) * 0.5 * height;
+    lbl.el.style.display = '';
+    lbl.el.style.transform = `translate(calc(${sx}px - 50%), calc(${sy}px - 50%))`;
+  }
+}
+
+// ===== Resize handling =====
+window.addEventListener('resize', () => {
+  const w = chartEl.clientWidth, h = chartEl.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  pointsMaterial.uniforms.uViewportHeight.value = h;
+});
+
+// ===== Render loop =====
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  repositionLabels();
+}
+animate();
+updateLabelVisibility();
 
 function renderPanel(oid) {
   const card = POINT_META[OID_TO_IDX[oid]];
@@ -533,7 +828,38 @@ function renderNeighbors(oid) {
 document.getElementById('color-axis').addEventListener('change', (e) => {
   filters.colorAxis = e.target.value;
   applyFilters();
+  renderLegend();
 });
+
+const GRADIENT_LABELS = {
+  edhrec: ['Least played', 'Most played'],
+  price: ['Cheap', 'Expensive'],
+  cmc: ['Low', 'High'],
+  release: ['Oldest', 'Newest'],
+};
+const HEATMAP_CSS = HEATMAP_HEX.map((h, i) =>
+  `${h} ${(i / (HEATMAP_HEX.length - 1) * 100).toFixed(1)}%`
+).join(', ');
+
+function renderLegend() {
+  const el = document.getElementById('color-legend');
+  if (filters.colorAxis === 'identity') {
+    el.innerHTML = '<div class="legend-categorical">' + COLOR_BUCKETS.map(b =>
+      `<span class="legend-item"><span class="legend-dot" style="background:${COLOR_HEX[b]}"></span>${b}</span>`
+    ).join('') + '</div>';
+  } else if (filters.colorAxis === 'type') {
+    el.innerHTML = '<div class="legend-categorical">' + TYPE_ORDER.map(t =>
+      `<span class="legend-item"><span class="legend-dot" style="background:${TYPE_COLOR[t]}"></span>${t.charAt(0).toUpperCase() + t.slice(1)}</span>`
+    ).join('') + '</div>';
+  } else {
+    const [lo, hi] = GRADIENT_LABELS[filters.colorAxis];
+    el.innerHTML = `<div class="legend-gradient">
+      <div class="bar" style="background:linear-gradient(to right, ${HEATMAP_CSS})"></div>
+      <div class="labels"><span>${lo}</span><span>${hi}</span></div>
+    </div>`;
+  }
+}
+renderLegend();
 
 const formatChipsEl = document.getElementById('format-chips');
 formatChipsEl.innerHTML = FORMATS.map(f =>
@@ -544,6 +870,19 @@ formatChipsEl.querySelectorAll('.chip').forEach(el => {
     const f = el.dataset.format;
     if (filters.formats.has(f)) { filters.formats.delete(f); el.classList.remove('active'); }
     else { filters.formats.add(f); el.classList.add('active'); }
+    applyFilters();
+  });
+});
+
+const typeChipsEl = document.getElementById('type-chips');
+typeChipsEl.innerHTML = TYPE_ORDER.map(t =>
+  `<span class="chip" data-type="${t}">${t.charAt(0).toUpperCase() + t.slice(1)}</span>`
+).join('');
+typeChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const t = el.dataset.type;
+    if (filters.types.has(t)) { filters.types.delete(t); el.classList.remove('active'); }
+    else { filters.types.add(t); el.classList.add('active'); }
     applyFilters();
   });
 });
@@ -607,6 +946,25 @@ cmcMin.addEventListener('input', onCmcChange);
 cmcMax.addEventListener('input', onCmcChange);
 updateCmcLabel();
 
+const priceMinEl = document.getElementById('price-min');
+const priceMaxEl = document.getElementById('price-max');
+const priceVals = document.getElementById('price-vals');
+function updatePriceLabel() {
+  priceVals.textContent = `${fmtPrice(parseInt(priceMinEl.value))} – ${fmtPrice(parseInt(priceMaxEl.value))}`;
+}
+function onPriceChange() {
+  let lo = parseInt(priceMinEl.value);
+  let hi = parseInt(priceMaxEl.value);
+  if (lo > hi) { if (this === priceMinEl) { hi = lo; priceMaxEl.value = lo; } else { lo = hi; priceMinEl.value = hi; } }
+  filters.priceMin = lo;
+  filters.priceMax = hi;
+  updatePriceLabel();
+  applyFilters();
+}
+priceMinEl.addEventListener('input', onPriceChange);
+priceMaxEl.addEventListener('input', onPriceChange);
+updatePriceLabel();
+
 const colorChipsEl = document.getElementById('color-chips');
 colorChipsEl.innerHTML = COLOR_BUCKETS.map(b =>
   `<span class="chip color-chip" style="background:${COLOR_HEX[b]}" data-color="${b}" title="${b}"></span>`
@@ -618,6 +976,15 @@ colorChipsEl.querySelectorAll('.chip').forEach(el => {
     else { filters.visibleColors.add(b); el.classList.remove('off'); }
     applyFilters();
   });
+});
+
+document.getElementById('show-labels').addEventListener('change', (e) => {
+  labelFilters.showLabels = e.target.checked;
+  updateLabelVisibility();
+});
+document.getElementById('hide-sparse-labels').addEventListener('change', (e) => {
+  labelFilters.hideSparseLabels = e.target.checked;
+  updateLabelVisibility();
 });
 
 document.getElementById('filter-header').addEventListener('click', () => {

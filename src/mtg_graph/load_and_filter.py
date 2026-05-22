@@ -1,4 +1,8 @@
-"""Stage 1: Load Scryfall oracle JSON, filter to playable cards, take top 5,000 by edhrec_rank."""
+"""Stage 1: Load Scryfall oracle JSON, filter to playable layouts, optionally take top N by edhrec_rank.
+
+When `n_cards` is None all playable-layout cards are kept (including those without
+an edhrec_rank). Otherwise only cards with a rank are sorted and the top-N kept.
+"""
 
 from __future__ import annotations
 
@@ -26,9 +30,9 @@ def _pick_price(prices, key: str) -> str | None:
 def run(
     data_dir: Path = Path("data"),
     output_dir: Path = Path("output"),
-    n_cards: int = 5000,
+    n_cards: int | None = None,
 ) -> Path:
-    """Load Scryfall oracle JSON, filter, take top N by EDHREC rank.
+    """Load Scryfall oracle JSON, filter, optionally take top N by EDHREC rank.
 
     Returns the path to the written parquet.
     """
@@ -52,11 +56,17 @@ def run(
     df = df[df["layout"].isin(KEEP_LAYOUTS)]
     print(f"  After layout filter: {len(df):,}")
 
-    df = df.dropna(subset=["edhrec_rank"])
-    print(f"  After dropping cards without edhrec_rank: {len(df):,}")
-
-    df = df.sort_values("edhrec_rank").head(n_cards).reset_index(drop=True)
-    print(f"  Top {len(df):,} by edhrec_rank")
+    if n_cards is not None:
+        df = df.dropna(subset=["edhrec_rank"])
+        print(f"  After dropping cards without edhrec_rank: {len(df):,}")
+        df = df.sort_values("edhrec_rank").head(n_cards).reset_index(drop=True)
+        print(f"  Top {len(df):,} by edhrec_rank")
+    else:
+        # Keep all playable-layout cards, including those without edhrec_rank.
+        # Sort by rank when present so downstream sampling (e.g. cluster.py picking
+        # 8 cards for LLM labels) prefers popular cards.
+        df = df.sort_values("edhrec_rank", na_position="last").reset_index(drop=True)
+        print(f"  Keeping all {len(df):,} (no n_cards cap)")
 
     df["image_small"] = df["image_uris"].apply(lambda u: _pick_image(u, "small"))
     df["image_normal"] = df["image_uris"].apply(lambda u: _pick_image(u, "normal"))
@@ -67,7 +77,7 @@ def run(
     cols = [
         "oracle_id", "name", "mana_cost", "cmc", "type_line", "oracle_text",
         "flavor_text", "keywords", "colors", "color_identity", "rarity",
-        "set", "set_name", "legalities", "edhrec_rank",
+        "set", "set_name", "legalities", "edhrec_rank", "released_at",
         "image_small", "image_normal", "image_art_crop",
         "price_usd", "price_usd_foil",
         "scryfall_uri",
@@ -77,7 +87,7 @@ def run(
             df[col] = None
     df = df[cols]
 
-    out = output_dir / "cards_top5k.parquet"
+    out = output_dir / "cards.parquet"
     df.to_parquet(out, index=False)
     print(f"  Wrote {out}")
     return out

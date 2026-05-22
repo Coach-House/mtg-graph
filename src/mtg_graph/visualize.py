@@ -67,15 +67,30 @@ def _hex_to_rgba(hex_color: str, alpha: float = 1.0) -> tuple[float, float, floa
 
 # ---------- Cosmograph (2D) serialization ----------
 
-COSMO_SPACE_EXTENT = 2000.0  # ±2000 inside Cosmograph's default 4096 spaceSize
+# Cosmograph's coordinate space runs [0, spaceSize] (NOT centered on origin).
+# We match its spaceSize=4096 config and leave a small padding margin so
+# fitViewOnInit has room to breathe.
+COSMO_SPACE_SIZE = 4096.0
+COSMO_PADDING = 200.0  # margin from each edge
 
 
-def _normalize_coords(values: np.ndarray, extent: float = COSMO_SPACE_EXTENT) -> np.ndarray:
-    """Center on 0 and scale to roughly ±extent."""
+def _normalize_coords_centered(values: np.ndarray, extent: float) -> np.ndarray:
+    """Center on 0 and scale to roughly ±extent. Used by 3d-force-graph."""
     vmin, vmax = float(values.min()), float(values.max())
     center = (vmin + vmax) / 2.0
     half_range = max((vmax - vmin) / 2.0, 1e-6)
     return ((values - center) / half_range * extent).astype(np.float32)
+
+
+def _normalize_coords_offset(
+    values: np.ndarray,
+    out_min: float = COSMO_PADDING,
+    out_max: float = COSMO_SPACE_SIZE - COSMO_PADDING,
+) -> np.ndarray:
+    """Linearly map values into [out_min, out_max]. Used by Cosmograph (2D)."""
+    vmin, vmax = float(values.min()), float(values.max())
+    span = max(vmax - vmin, 1e-6)
+    return ((values - vmin) / span * (out_max - out_min) + out_min).astype(np.float32)
 
 
 def _build_cosmograph_data(
@@ -87,8 +102,8 @@ def _build_cosmograph_data(
     """Produce all the JSON payloads the Cosmograph viewer template needs."""
     x_col, y_col = f"x_{model_key}", f"y_{model_key}"
     df = merged.reset_index(drop=True)
-    xs = _normalize_coords(df[x_col].to_numpy(dtype=np.float64))
-    ys = _normalize_coords(df[y_col].to_numpy(dtype=np.float64))
+    xs = _normalize_coords_offset(df[x_col].to_numpy(dtype=np.float64))
+    ys = _normalize_coords_offset(df[y_col].to_numpy(dtype=np.float64))
     n = len(df)
 
     # Interleaved [x1, y1, x2, y2, ...] for Cosmograph.setPointPositions.
@@ -127,9 +142,12 @@ def _build_cosmograph_data(
     meta_fields = [
         "oracle_id", "name", "mana_cost", "cmc", "type_line", "oracle_text",
         "flavor_text", "rarity", "set", "set_name", "legalities", "edhrec_rank",
+        "color_identity", "released_at",
         "image_small", "image_normal", "image_art_crop",
         "price_usd", "price_usd_foil", "scryfall_uri",
     ]
+    cluster_col_2d = f"cluster_{model_key}"
+    has_cluster = cluster_col_2d in df.columns
     point_meta = []
     for _, row in df.iterrows():
         rec = {}
@@ -143,28 +161,39 @@ def _build_cosmograph_data(
                 rec[f] = list(val)
             else:
                 rec[f] = val
+        # Normalize the model-suffixed column name to a generic "cluster" key so
+        # the viewer JS doesn't need to know which embedding model produced the data.
+        if has_cluster:
+            cv = row.get(cluster_col_2d)
+            rec["cluster"] = None if (cv is None or (isinstance(cv, float) and np.isnan(cv))) else int(cv)
         point_meta.append(rec)
 
     # Cluster labels in NORMALIZED space coords so they line up with Cosmograph's frame.
+    # Uses the SAME [out_min, out_max] mapping as the point positions above —
+    # critical for label-overlay alignment when rescalePositions=false in the viewer.
     raw_x = df[x_col].to_numpy(dtype=np.float64)
     raw_y = df[y_col].to_numpy(dtype=np.float64)
-    x_center = (float(raw_x.min()) + float(raw_x.max())) / 2.0
-    y_center = (float(raw_y.min()) + float(raw_y.max())) / 2.0
-    x_half = max((float(raw_x.max()) - float(raw_x.min())) / 2.0, 1e-6)
-    y_half = max((float(raw_y.max()) - float(raw_y.min())) / 2.0, 1e-6)
+    x_min, x_max = float(raw_x.min()), float(raw_x.max())
+    y_min, y_max = float(raw_y.min()), float(raw_y.max())
+    x_span = max(x_max - x_min, 1e-6)
+    y_span = max(y_max - y_min, 1e-6)
+    out_min = COSMO_PADDING
+    out_max = COSMO_SPACE_SIZE - COSMO_PADDING
+    out_range = out_max - out_min
     cluster_col = f"cluster_{model_key}"
     label_entries = []
     for cid_str, label_text in (cluster_labels or {}).get(model_key, {}).items():
         if cluster_col not in df.columns:
             continue
-        sub = df[df[cluster_col] == int(cid_str)]
+        cid = int(cid_str)
+        sub = df[df[cluster_col] == cid]
         if sub.empty:
             continue
         raw_cx = float(sub[x_col].mean())
         raw_cy = float(sub[y_col].mean())
-        nx = (raw_cx - x_center) / x_half * COSMO_SPACE_EXTENT
-        ny = (raw_cy - y_center) / y_half * COSMO_SPACE_EXTENT
-        label_entries.append({"x": nx, "y": ny, "text": label_text})
+        nx = (raw_cx - x_min) / x_span * out_range + out_min
+        ny = (raw_cy - y_min) / y_span * out_range + out_min
+        label_entries.append({"x": nx, "y": ny, "text": label_text, "cluster_id": cid})
 
     # KNN as oid-keyed map for the neighbors grid in the side panel.
     knn_by_oid = {oid: list(neighbors) for oid, neighbors in model_knn.items()}
@@ -224,14 +253,15 @@ FORCEGRAPH_EXTENT = 200.0
 def _build_forcegraph_data(
     merged: pd.DataFrame,
     model_key: str,
+    cluster_labels: dict,
     knn: dict,
 ) -> dict:
     """Produce JSON payloads the 3D viewer template needs."""
     x_col, y_col, z_col = f"x3_{model_key}", f"y3_{model_key}", f"z3_{model_key}"
     df = merged.reset_index(drop=True)
-    xs = _normalize_coords(df[x_col].to_numpy(dtype=np.float64), extent=FORCEGRAPH_EXTENT)
-    ys = _normalize_coords(df[y_col].to_numpy(dtype=np.float64), extent=FORCEGRAPH_EXTENT)
-    zs = _normalize_coords(df[z_col].to_numpy(dtype=np.float64), extent=FORCEGRAPH_EXTENT)
+    xs = _normalize_coords_centered(df[x_col].to_numpy(dtype=np.float64), extent=FORCEGRAPH_EXTENT)
+    ys = _normalize_coords_centered(df[y_col].to_numpy(dtype=np.float64), extent=FORCEGRAPH_EXTENT)
+    zs = _normalize_coords_centered(df[z_col].to_numpy(dtype=np.float64), extent=FORCEGRAPH_EXTENT)
     n = len(df)
 
     # Interleaved [x1, y1, z1, x2, y2, z2, ...] for the template to consume by index.
@@ -248,9 +278,12 @@ def _build_forcegraph_data(
     meta_fields = [
         "oracle_id", "name", "mana_cost", "cmc", "type_line", "oracle_text",
         "flavor_text", "rarity", "set", "set_name", "legalities", "edhrec_rank",
+        "color_identity", "released_at",
         "image_small", "image_normal", "image_art_crop",
         "price_usd", "price_usd_foil", "scryfall_uri",
     ]
+    cluster_col_3d = f"cluster_{model_key}"
+    has_cluster = cluster_col_3d in df.columns
     point_meta = []
     for _, row in df.iterrows():
         rec = {}
@@ -264,10 +297,35 @@ def _build_forcegraph_data(
                 rec[f] = list(val)
             else:
                 rec[f] = val
+        if has_cluster:
+            cv = row.get(cluster_col_3d)
+            rec["cluster"] = None if (cv is None or (isinstance(cv, float) and np.isnan(cv))) else int(cv)
         point_meta.append(rec)
 
     model_knn = (knn or {}).get(model_key, {})
     knn_by_oid = {oid: list(neighbors) for oid, neighbors in model_knn.items()}
+
+    # Cluster label 3D positions (centroid of each labeled cluster).
+    raw_x = df[x_col].to_numpy(dtype=np.float64)
+    raw_y = df[y_col].to_numpy(dtype=np.float64)
+    raw_z = df[z_col].to_numpy(dtype=np.float64)
+    label_entries: list[dict] = []
+    if has_cluster:
+        x_center = (float(raw_x.min()) + float(raw_x.max())) / 2.0
+        y_center = (float(raw_y.min()) + float(raw_y.max())) / 2.0
+        z_center = (float(raw_z.min()) + float(raw_z.max())) / 2.0
+        x_half = max((float(raw_x.max()) - float(raw_x.min())) / 2.0, 1e-6)
+        y_half = max((float(raw_y.max()) - float(raw_y.min())) / 2.0, 1e-6)
+        z_half = max((float(raw_z.max()) - float(raw_z.min())) / 2.0, 1e-6)
+        for cid_str, label_text in (cluster_labels or {}).get(model_key, {}).items():
+            cid = int(cid_str)
+            sub = df[df[cluster_col_3d] == cid]
+            if sub.empty:
+                continue
+            cx = (float(sub[x_col].mean()) - x_center) / x_half * FORCEGRAPH_EXTENT
+            cy = (float(sub[y_col].mean()) - y_center) / y_half * FORCEGRAPH_EXTENT
+            cz = (float(sub[z_col].mean()) - z_center) / z_half * FORCEGRAPH_EXTENT
+            label_entries.append({"x": cx, "y": cy, "z": cz, "text": label_text, "cluster_id": cid})
 
     return {
         "positions": positions.tolist(),
@@ -275,6 +333,7 @@ def _build_forcegraph_data(
         "point_meta": point_meta,
         "oid_to_idx": oid_to_idx,
         "knn_by_oid": knn_by_oid,
+        "cluster_labels": label_entries,
     }
 
 
@@ -299,13 +358,14 @@ def _render_3d_forcegraph(
         .replace("{{POINT_COLORS_HEX_JSON}}", _safe_json(data["colors_hex"]))
         .replace("{{OID_TO_IDX_JSON}}", _safe_json(data["oid_to_idx"]))
         .replace("{{KNN_BY_OID_JSON}}", _safe_json(data["knn_by_oid"]))
+        .replace("{{CLUSTER_LABELS_JSON}}", _safe_json(data["cluster_labels"]))
     )
 
 
 # ---------- orchestration ----------
 
 def run(
-    cards_path: Path = Path("output/cards_top5k.parquet"),
+    cards_path: Path = Path("output/cards.parquet"),
     coords_path: Path = Path("output/coords.parquet"),
     output_dir: Path = Path("output"),
 ) -> dict[str, Path]:
@@ -355,7 +415,7 @@ def run(
         # 3D (3d-force-graph)
         if f"x3_{model_key}" not in merged.columns:
             continue
-        data_3d = _build_forcegraph_data(merged, model_key, knn)
+        data_3d = _build_forcegraph_data(merged, model_key, cluster_labels, knn)
         html3d = _render_3d_forcegraph(
             template_3d,
             data_3d,

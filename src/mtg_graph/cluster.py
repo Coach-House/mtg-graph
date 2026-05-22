@@ -163,7 +163,7 @@ def _llm_label_clusters(
 
 
 def run(
-    cards_path: Path = Path("output/cards_top5k.parquet"),
+    cards_path: Path = Path("output/cards.parquet"),
     output_dir: Path = Path("output"),
 ) -> Path:
     """Cluster on the 2D UMAP coords (HDBSCAN works much better in low-dim post-UMAP space)."""

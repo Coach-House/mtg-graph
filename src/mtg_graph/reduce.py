@@ -21,7 +21,7 @@ def _reduce(vectors: np.ndarray, label: str, n_components: int) -> np.ndarray:
 
 
 def run(
-    cards_path: Path = Path("output/cards_top5k.parquet"),
+    cards_path: Path = Path("output/cards.parquet"),
     output_dir: Path = Path("output"),
 ) -> Path:
     """Reduce each available embedding set to both 2D and 3D."""

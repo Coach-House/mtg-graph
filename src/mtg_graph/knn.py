@@ -35,7 +35,7 @@ def _knn_for(vectors: np.ndarray, oracle_ids: list[str]) -> dict[str, list[str]]
 
 
 def run(
-    cards_path: Path = Path("output/cards_top5k.parquet"),
+    cards_path: Path = Path("output/cards.parquet"),
     output_dir: Path = Path("output"),
 ) -> Path:
     df = pd.read_parquet(cards_path)

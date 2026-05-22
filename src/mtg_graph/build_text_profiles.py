@@ -23,8 +23,8 @@ def _profile(row: pd.Series) -> str:
 
 
 def run(
-    input_path: Path = Path("output/cards_top5k.parquet"),
-    output_path: Path = Path("output/cards_top5k.parquet"),
+    input_path: Path = Path("output/cards.parquet"),
+    output_path: Path = Path("output/cards.parquet"),
 ) -> Path:
     """Add a `text_profile` column to the cards parquet."""
     df = pd.read_parquet(input_path)

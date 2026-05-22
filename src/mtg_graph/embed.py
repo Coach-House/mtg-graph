@@ -76,14 +76,16 @@ def _embed_openai(profiles: list[str]) -> np.ndarray:
 
 
 def run(
-    input_path: Path = Path("output/cards_top5k.parquet"),
+    input_path: Path = Path("output/cards.parquet"),
     output_dir: Path = Path("output"),
     force: bool = False,
     skip_openai: bool = False,
+    skip_local: bool = False,
 ) -> dict[str, Path]:
     """Generate embeddings with both models. Returns {model_name: npy_path}.
 
-    If OPENAI_API_KEY is missing or skip_openai is True, only local is generated.
+    Either backend can be skipped via skip_local / skip_openai. OpenAI also
+    skipped automatically when OPENAI_API_KEY is missing.
     """
     load_dotenv()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -97,16 +99,19 @@ def run(
     results: dict[str, Path] = {}
 
     # Local
-    local_npy = output_dir / "embeddings_local.npy"
-    local_sidecar = output_dir / "embeddings_local.json"
-    if not force and _cache_is_valid(local_sidecar, LOCAL_MODEL_ID, card_hash):
-        print(f"Local cache valid — skipping ({local_npy})")
+    if skip_local:
+        print("Skipping local embeddings (skip_local=True)")
     else:
-        print("Generating local embeddings...")
-        vectors = _embed_local(profiles)
-        _write_cache(local_npy, local_sidecar, vectors, LOCAL_MODEL_ID, card_hash)
-        print(f"  Wrote {local_npy} (shape {vectors.shape})")
-    results["local"] = local_npy
+        local_npy = output_dir / "embeddings_local.npy"
+        local_sidecar = output_dir / "embeddings_local.json"
+        if not force and _cache_is_valid(local_sidecar, LOCAL_MODEL_ID, card_hash):
+            print(f"Local cache valid — skipping ({local_npy})")
+        else:
+            print("Generating local embeddings...")
+            vectors = _embed_local(profiles)
+            _write_cache(local_npy, local_sidecar, vectors, LOCAL_MODEL_ID, card_hash)
+            print(f"  Wrote {local_npy} (shape {vectors.shape})")
+        results["local"] = local_npy
 
     # OpenAI
     if skip_openai:
