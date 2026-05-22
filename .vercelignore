@@ -1,0 +1,13 @@
+# Vercel CLI does NOT respect .gitignore by default — list what to exclude.
+# Goal: ship only `public/` (static viewer + data) and `vercel.json`.
+data/
+output/
+.venv/
+__pycache__/
+*.pyc
+.env
+src/
+docs/
+pyproject.toml
+uv.lock
+README.md
