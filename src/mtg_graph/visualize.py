@@ -218,13 +218,16 @@ def _safe_json(obj) -> str:
 
 def _render_2d_cosmograph(
     template: str,
-    data: dict,
+    data_json_path: str,
     title: str,
     mode_label: str,
     counterpart_href: str,
     counterpart_label: str,
     status_hint: str,
 ) -> str:
+    """Render the viewer HTML with no embedded data — data is fetched at runtime
+    from `data_json_path`, kept separate so the HTML stays tiny and the JSON
+    can be gzip-compressed + edge-cached by the host."""
     return (
         template
         .replace("{{TITLE}}", title)
@@ -232,14 +235,7 @@ def _render_2d_cosmograph(
         .replace("{{MODE_LABEL}}", mode_label)
         .replace("{{COUNTERPART_HREF}}", counterpart_href)
         .replace("{{COUNTERPART_LABEL}}", counterpart_label)
-        .replace("{{POINT_META_JSON}}", _safe_json(data["point_meta"]))
-        .replace("{{POINT_POSITIONS_JSON}}", _safe_json(data["point_positions"]))
-        .replace("{{POINT_COLORS_JSON}}", _safe_json(data["point_colors"]))
-        .replace("{{LINKS_JSON}}", _safe_json(data["links"]))
-        .replace("{{CLUSTER_LABELS_JSON}}", _safe_json(data["cluster_labels"]))
-        .replace("{{OID_TO_IDX_JSON}}", _safe_json(data["oid_to_idx"]))
-        .replace("{{IDX_TO_OID_JSON}}", _safe_json(data["idx_to_oid"]))
-        .replace("{{KNN_BY_OID_JSON}}", _safe_json(data["knn_by_oid"]))
+        .replace("{{DATA_JSON_PATH}}", data_json_path)
     )
 
 
@@ -339,7 +335,7 @@ def _build_forcegraph_data(
 
 def _render_3d_forcegraph(
     template: str,
-    data: dict,
+    data_json_path: str,
     title: str,
     mode_label: str,
     counterpart_href: str,
@@ -353,13 +349,51 @@ def _render_3d_forcegraph(
         .replace("{{MODE_LABEL}}", mode_label)
         .replace("{{COUNTERPART_HREF}}", counterpart_href)
         .replace("{{COUNTERPART_LABEL}}", counterpart_label)
-        .replace("{{POINT_META_JSON}}", _safe_json(data["point_meta"]))
-        .replace("{{POINT_POSITIONS_3D_JSON}}", _safe_json(data["positions"]))
-        .replace("{{POINT_COLORS_HEX_JSON}}", _safe_json(data["colors_hex"]))
-        .replace("{{OID_TO_IDX_JSON}}", _safe_json(data["oid_to_idx"]))
-        .replace("{{KNN_BY_OID_JSON}}", _safe_json(data["knn_by_oid"]))
-        .replace("{{CLUSTER_LABELS_JSON}}", _safe_json(data["cluster_labels"]))
+        .replace("{{DATA_JSON_PATH}}", data_json_path)
     )
+
+
+INDEX_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MTG Graph — explore 33k Magic cards</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --bg: #0a0a0a; --panel-bg: #161616; --panel-border: #2a2a2a; --text: #e8e8e8; --text-dim: #888; --accent: #c9a227; --accent-bright: #fbbf24; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  main { max-width: 720px; padding: 48px 32px; }
+  h1 { font-size: 36px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .sub { color: var(--text-dim); font-size: 15px; line-height: 1.55; margin-bottom: 32px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px; padding: 20px; text-decoration: none; color: var(--text); transition: border-color 0.15s, transform 0.15s; }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card h2 { font-size: 22px; margin: 0 0 4px; color: var(--accent-bright); }
+  .card p { font-size: 13px; color: var(--text-dim); margin: 0; line-height: 1.5; }
+  .meta { color: var(--text-dim); font-size: 12px; margin-top: 32px; line-height: 1.6; }
+  .meta a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>MTG Graph</h1>
+  <p class="sub">An interactive map of <strong>33,683 Magic: The Gathering cards</strong> placed by semantic similarity. Cards close together share mechanics, themes, or text patterns. Embeddings via OpenAI <code>text-embedding-3-small</code>, projected with UMAP, clustered with HDBSCAN, labels via GPT-4o-mini.</p>
+  <div class="cards">
+    <a class="card" href="2d.html">
+      <h2>2D viewer →</h2>
+      <p>Fast and dense. Best for searching, filtering, and watching the timeline animate from 1993 → today.</p>
+    </a>
+    <a class="card" href="3d.html">
+      <h2>3D viewer →</h2>
+      <p>Orbit through the embedding space. Same filters, same data, different perspective on cluster structure.</p>
+    </a>
+  </div>
+  <p class="meta">Initial load fetches a ~95 MB JSON payload (gzipped to ~15-20 MB over the wire). Cached after first visit. Source: <a href="https://github.com/Coach-House/mtg-graph">github.com/Coach-House/mtg-graph</a></p>
+</main>
+</body>
+</html>
+"""
 
 
 # ---------- orchestration ----------
@@ -368,7 +402,18 @@ def run(
     cards_path: Path = Path("output/cards.parquet"),
     coords_path: Path = Path("output/coords.parquet"),
     output_dir: Path = Path("output"),
+    dist_dir: Path = Path("public"),
 ) -> dict[str, Path]:
+    """Pipeline final stage: write deploy-ready static files to `dist_dir`.
+
+    Each model + view writes TWO files:
+      <view>.html  — small (~50 KB) viewer code only
+      <view>.json  — large data payload, fetched async at runtime
+
+    The split keeps initial HTML download tiny and lets the host gzip-compress
+    + edge-cache the JSON. Single source of truth so `output/` stays for
+    intermediate parquets (gitignored) and `public/` holds the shipped artifacts.
+    """
     cards = pd.read_parquet(cards_path)
     coords = pd.read_parquet(coords_path)
     merged = cards.merge(coords, on="oracle_id", how="inner")
@@ -386,49 +431,66 @@ def run(
 
     template_2d = TEMPLATE_2D.read_text()
     template_3d = TEMPLATE_3D.read_text()
+    dist_dir.mkdir(parents=True, exist_ok=True)
     outputs: dict[str, Path] = {}
 
-    for model_key in ("local", "openai"):
-        if f"x_{model_key}" not in merged.columns:
-            continue
+    # Pick the "primary" model: prefer openai if present, else local.
+    available_models = [m for m in ("openai", "local") if f"x_{m}" in merged.columns]
+    if not available_models:
+        print("  No embedding columns found in coords — nothing to render")
+        return outputs
+    primary = available_models[0]
+
+    for model_key in available_models:
         model_label = MODEL_LABELS[model_key]
-        suffix = "" if model_key == "local" else f"_{model_key}"
-        out2d_name = f"mtg_graph_poc{suffix}.html"
-        out3d_name = f"mtg_graph_poc_3d{suffix}.html"
+        # Primary model gets clean URLs (2d.html / 3d.html); others get suffixed.
+        suffix = "" if model_key == primary else f"_{model_key}"
+        out2d_name = f"2d{suffix}.html"
+        out3d_name = f"3d{suffix}.html"
+        data2d_name = f"2d{suffix}.json"
+        data3d_name = f"3d{suffix}.json"
 
         # 2D (Cosmograph)
         data_2d = _build_cosmograph_data(merged, model_key, cluster_labels, knn)
+        (dist_dir / data2d_name).write_text(json.dumps(data_2d, default=str))
         html2d = _render_2d_cosmograph(
             template_2d,
-            data_2d,
+            data_json_path=data2d_name,
             title=f"MTG Graph — {model_label}",
             mode_label="2D",
             counterpart_href=out3d_name,
             counterpart_label="Switch to 3D",
             status_hint="Click any card · scroll to zoom · drag to pan",
         )
-        out2d = output_dir / out2d_name
+        out2d = dist_dir / out2d_name
         out2d.write_text(html2d)
         outputs[f"2d_{model_key}"] = out2d
-        print(f"  Wrote {out2d}")
+        print(f"  Wrote {out2d} + {dist_dir / data2d_name}")
 
-        # 3D (3d-force-graph)
+        # 3D (native three.js + Points)
         if f"x3_{model_key}" not in merged.columns:
             continue
         data_3d = _build_forcegraph_data(merged, model_key, cluster_labels, knn)
+        (dist_dir / data3d_name).write_text(json.dumps(data_3d, default=str))
         html3d = _render_3d_forcegraph(
             template_3d,
-            data_3d,
+            data_json_path=data3d_name,
             title=f"MTG Graph 3D — {model_label}",
             mode_label="3D",
             counterpart_href=out2d_name,
             counterpart_label="Switch to 2D",
             status_hint="Click any card · drag to orbit · scroll to zoom",
         )
-        out3d = output_dir / out3d_name
+        out3d = dist_dir / out3d_name
         out3d.write_text(html3d)
         outputs[f"3d_{model_key}"] = out3d
-        print(f"  Wrote {out3d}")
+        print(f"  Wrote {out3d} + {dist_dir / data3d_name}")
+
+    # Landing page with links to both viewers (links use clean URLs that
+    # vercel.json rewrites strip the .html from).
+    (dist_dir / "index.html").write_text(INDEX_HTML)
+    outputs["index"] = dist_dir / "index.html"
+    print(f"  Wrote {dist_dir / 'index.html'}")
 
     return outputs
 

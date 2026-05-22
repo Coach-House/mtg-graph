@@ -72,6 +72,8 @@ def main() -> None:
             if key in outputs:
                 subprocess.run(["open", str(outputs[key])], check=False)
                 break
+        else:
+            print(f"  Nothing to open for view '{args.open}'")
 
 
 if __name__ == "__main__":

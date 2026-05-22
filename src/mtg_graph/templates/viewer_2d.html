@@ -166,6 +166,9 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
 .actions button:hover, .actions a:hover { border-color: var(--accent); color: var(--accent-bright); }
 
 #status-bar { position: absolute; bottom: 10px; left: 14px; font-size: 11px; color: var(--text-dim); pointer-events: none; z-index: 5; }
+#loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; background: var(--bg); z-index: 50; color: var(--text-dim); font-size: 13px; }
+#loading-overlay .spinner { width: 28px; height: 28px; border: 2px solid var(--panel-border); border-top-color: var(--accent-bright); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 .color-legend { margin-top: 8px; }
 .legend-categorical { display: flex; flex-wrap: wrap; gap: 4px 10px; }
@@ -194,6 +197,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
   <div id="chart-wrap">
     <div id="chart"></div>
     <div id="labels-layer"></div>
+    <div id="loading-overlay"><div class="spinner"></div><div id="loading-msg">Loading 33k cards…</div></div>
     <div id="status-bar">{{STATUS_HINT}}</div>
   </div>
   <button id="toggle-panel" title="Toggle panel">«</button>
@@ -312,26 +316,30 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
   </aside>
 </div>
 
-<script id="point-meta" type="application/json">{{POINT_META_JSON}}</script>
-<script id="point-positions" type="application/json">{{POINT_POSITIONS_JSON}}</script>
-<script id="point-colors" type="application/json">{{POINT_COLORS_JSON}}</script>
-<script id="links-data" type="application/json">{{LINKS_JSON}}</script>
-<script id="cluster-labels" type="application/json">{{CLUSTER_LABELS_JSON}}</script>
-<script id="oid-to-idx" type="application/json">{{OID_TO_IDX_JSON}}</script>
-<script id="idx-to-oid" type="application/json">{{IDX_TO_OID_JSON}}</script>
-<script id="knn-by-oid" type="application/json">{{KNN_BY_OID_JSON}}</script>
-
 <script type="module">
 import { Graph } from 'https://esm.sh/@cosmos.gl/graph@2.6.4';
 
-const POINT_META = JSON.parse(document.getElementById('point-meta').textContent);
-const POINT_POSITIONS = new Float32Array(JSON.parse(document.getElementById('point-positions').textContent));
-const POINT_COLORS = new Float32Array(JSON.parse(document.getElementById('point-colors').textContent));
-const LINKS = new Float32Array(JSON.parse(document.getElementById('links-data').textContent));
-const CLUSTER_LABELS = JSON.parse(document.getElementById('cluster-labels').textContent);
-const OID_TO_IDX = JSON.parse(document.getElementById('oid-to-idx').textContent);
-const IDX_TO_OID = JSON.parse(document.getElementById('idx-to-oid').textContent);
-const KNN_BY_OID = JSON.parse(document.getElementById('knn-by-oid').textContent);
+// Fetch the data payload separately so the HTML stays small and the JSON
+// can be gzip-compressed + edge-cached by the host (~5-6× wire-size reduction).
+const loadingMsg = document.getElementById('loading-msg');
+const loadingOverlay = document.getElementById('loading-overlay');
+loadingMsg.textContent = 'Fetching data…';
+const dataResp = await fetch('{{DATA_JSON_PATH}}');
+if (!dataResp.ok) {
+  loadingMsg.textContent = 'Failed to load data: HTTP ' + dataResp.status;
+  throw new Error('Data fetch failed: ' + dataResp.status);
+}
+loadingMsg.textContent = 'Parsing…';
+const data = await dataResp.json();
+
+const POINT_META = data.point_meta;
+const POINT_POSITIONS = new Float32Array(data.point_positions);
+const POINT_COLORS = new Float32Array(data.point_colors);
+const LINKS = new Float32Array(data.links);
+const CLUSTER_LABELS = data.cluster_labels;
+const OID_TO_IDX = data.oid_to_idx;
+const IDX_TO_OID = data.idx_to_oid;
+const KNN_BY_OID = data.knn_by_oid;
 
 const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
 
@@ -595,6 +603,7 @@ graph.setPointPositions(POINT_POSITIONS, true);
 graph.setPointColors(POINT_COLORS);
 graph.setLinks(LINKS);
 graph.render();
+loadingOverlay.style.display = 'none';
 
 // Build cluster label DOM nodes once.
 const labelElements = [];

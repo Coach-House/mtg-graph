@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MTG Graph 3D — text-embedding-3-small (1536d)</title>
+<style>
+:root {
+  --bg: #0a0a0a;
+  --panel-bg: #161616;
+  --panel-border: #2a2a2a;
+  --text: #e8e8e8;
+  --text-dim: #888;
+  --accent: #c9a227;
+  --accent-bright: #fbbf24;
+  --input-bg: #1f1f1f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; height: 100%; overflow: hidden; }
+#app { display: flex; height: 100vh; width: 100vw; }
+#chart-wrap { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--bg); }
+#chart { width: 100%; height: 100%; display: block; }
+#labels-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.cluster-label { position: absolute; color: #F0F0F0; font-size: 11px; font-weight: 700; font-family: 'Arial Black', sans-serif; text-shadow: 0 0 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,0.9); white-space: nowrap; transform: translate(-50%, -50%); }
+#hover-tooltip { position: absolute; pointer-events: none; background: rgba(17,17,17,0.95); color: #e8e8e8; border: 1px solid var(--panel-border); font-size: 13px; padding: 6px 10px; border-radius: 4px; display: none; z-index: 15; }
+#loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; background: var(--bg); z-index: 50; color: var(--text-dim); font-size: 13px; }
+#loading-overlay .spinner { width: 28px; height: 28px; border: 2px solid var(--panel-border); border-top-color: var(--accent-bright); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#panel {
+  width: 420px;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--panel-border);
+  overflow-y: auto;
+  transition: width 0.2s ease;
+  flex-shrink: 0;
+}
+#panel.collapsed { width: 0; border-left: none; }
+#panel.collapsed > * { display: none; }
+#toggle-panel {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 60px;
+  background: var(--panel-border);
+  color: var(--text);
+  border: none;
+  cursor: pointer;
+  border-radius: 4px 0 0 4px;
+  font-size: 12px;
+  font-family: monospace;
+  z-index: 10;
+}
+.panel-inner { padding: 16px; }
+.mode-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
+.mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+.mode-switch { color: var(--accent); text-decoration: none; font-size: 12px; }
+.mode-switch:hover { color: var(--accent-bright); }
+.filter-section { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
+.filter-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); cursor: pointer; padding: 4px 0; user-select: none; }
+.filter-header:hover { color: var(--text); }
+.filter-section.collapsed .filter-body { display: none; }
+.filter-body { padding: 8px 0 4px; }
+.filter-row { margin-bottom: 12px; }
+.filter-row:last-child { margin-bottom: 0; }
+.filter-row label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+.filter-row select, .filter-row input[type=text] {
+  width: 100%; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--panel-border); padding: 5px 8px;
+  font-size: 12px; border-radius: 3px; outline: none;
+}
+.filter-row select:focus, .filter-row input[type=text]:focus { border-color: var(--accent); }
+.format-chips, .color-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 11px;
+  background: var(--input-bg); color: var(--text-dim);
+  border: 1px solid var(--panel-border); cursor: pointer;
+  user-select: none;
+}
+.chip.active { color: var(--text); border-color: var(--accent); background: rgba(201,162,39,0.1); }
+.chip.color-chip { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid transparent; position: relative; }
+.chip.color-chip.off { opacity: 0.25; border-color: var(--panel-border); }
+.cmc-row { display: flex; align-items: center; gap: 8px; }
+.cmc-row input[type=range] { flex: 1; accent-color: var(--accent); }
+.cmc-row .cmc-vals { font-size: 11px; color: var(--text-dim); min-width: 32px; text-align: right; }
+.set-options { max-height: 140px; overflow-y: auto; background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 3px; margin-top: 4px; display: none; }
+.set-options.open { display: block; }
+.set-option { padding: 4px 8px; font-size: 11px; cursor: pointer; }
+.set-option:hover { background: var(--panel-border); }
+.selected-sets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.selected-set-chip { background: rgba(201,162,39,0.15); color: var(--accent-bright); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; cursor: pointer; }
+.sr-text-hit { color: var(--accent-bright); font-size: 10px; margin-left: 6px; }
+.search-row { position: relative; margin-bottom: 16px; }
+#search {
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  padding: 8px 10px;
+  font-size: 14px;
+  border-radius: 4px;
+  outline: none;
+}
+#search:focus { border-color: var(--accent); }
+#search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-top: none;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 20;
+  display: none;
+}
+#search-results.open { display: block; }
+.search-result {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.search-result:hover { background: var(--panel-border); color: var(--accent-bright); }
+.search-result .sr-type { color: var(--text-dim); font-size: 11px; margin-left: 6px; }
+
+.placeholder { color: var(--text-dim); padding: 40px 16px; text-align: center; font-size: 14px; line-height: 1.6; }
+.card-detail { display: none; }
+.card-detail.open { display: block; }
+.card-img-wrap { text-align: center; margin-bottom: 12px; }
+.card-img-wrap img { max-width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+.card-name { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.card-meta { color: var(--text-dim); font-size: 12px; margin-bottom: 12px; }
+.card-meta span + span::before { content: " · "; margin: 0 4px; }
+.card-text { font-size: 13px; line-height: 1.55; background: var(--input-bg); padding: 10px 12px; border-radius: 4px; border-left: 3px solid var(--accent); white-space: pre-wrap; margin-bottom: 12px; }
+.card-flavor { font-size: 12px; line-height: 1.5; color: var(--text-dim); font-style: italic; margin-bottom: 12px; padding: 0 4px; }
+.card-prices { font-size: 12px; color: var(--text-dim); margin-bottom: 16px; }
+.card-prices strong { color: var(--text); }
+
+.section-header { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--panel-border); }
+.neighbor-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.neighbor {
+  display: flex; flex-direction: column;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 6px; cursor: pointer;
+  transition: border-color 0.1s;
+}
+.neighbor:hover { border-color: var(--accent); }
+.neighbor img { width: 100%; border-radius: 3px; }
+.neighbor .n-name { font-size: 11px; margin-top: 4px; line-height: 1.3; }
+.actions { display: flex; gap: 8px; margin-top: 12px; }
+.actions button, .actions a {
+  flex: 1; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--panel-border);
+  padding: 7px 10px; font-size: 12px; border-radius: 4px;
+  cursor: pointer; text-decoration: none; text-align: center;
+}
+.actions button:hover, .actions a:hover { border-color: var(--accent); color: var(--accent-bright); }
+
+#status-bar { position: absolute; bottom: 10px; left: 14px; font-size: 11px; color: var(--text-dim); pointer-events: none; z-index: 5; }
+
+.color-legend { margin-top: 8px; }
+.legend-categorical { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); font-size: 11px; line-height: 1.4; }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
+.legend-gradient .bar { height: 10px; border-radius: 2px; }
+.legend-gradient .labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+.check-row { display: flex !important; align-items: center; gap: 6px; cursor: pointer; color: var(--text-dim); font-size: 11px; margin-bottom: 0 !important; }
+.check-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+.toggle-row { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="chart-wrap">
+    <div id="chart"></div>
+    <div id="labels-layer"></div>
+    <div id="hover-tooltip"></div>
+    <div id="loading-overlay"><div class="spinner"></div><div id="loading-msg">Loading 33k cards…</div></div>
+    <div id="status-bar">Click any card · drag to orbit · scroll to zoom</div>
+  </div>
+  <button id="toggle-panel" title="Toggle panel">«</button>
+  <aside id="panel">
+    <div class="panel-inner">
+      <div class="mode-row">
+        <span class="mode-label">3D</span>
+        <a class="mode-switch" href="2d.html">Switch to 2D →</a>
+      </div>
+      <div class="filter-section" id="filter-section">
+        <div class="filter-header" id="filter-header">
+          <span>▾ Filters &amp; Overlays</span>
+        </div>
+        <div class="filter-body">
+          <div class="filter-row">
+            <label for="color-axis">Color by</label>
+            <select id="color-axis">
+              <option value="identity">Color identity</option>
+              <option value="edhrec">EDHREC rank (popularity)</option>
+              <option value="price">Price (USD)</option>
+              <option value="type">Card type</option>
+              <option value="cmc">Mana value</option>
+              <option value="release">Release date</option>
+            </select>
+            <div id="color-legend" class="color-legend"></div>
+          </div>
+          <div class="filter-row">
+            <label>Format</label>
+            <div class="format-chips" id="format-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label>Card type</label>
+            <div class="format-chips" id="type-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label for="set-input">Set</label>
+            <input type="text" id="set-input" placeholder="Type to filter sets…" autocomplete="off" />
+            <div class="set-options" id="set-options"></div>
+            <div class="selected-sets" id="selected-sets"></div>
+          </div>
+          <div class="filter-row">
+            <label>Mana value <span class="cmc-vals" id="cmc-vals">0–10+</span></label>
+            <div class="cmc-row">
+              <input type="range" id="cmc-min" min="0" max="11" step="1" value="0" />
+              <input type="range" id="cmc-max" min="0" max="11" step="1" value="11" />
+            </div>
+          </div>
+          <div class="filter-row">
+            <label>Price <span class="cmc-vals" id="price-vals">$0 – Any</span></label>
+            <div class="cmc-row">
+              <input type="range" id="price-min" min="0" max="14" step="1" value="0" />
+              <input type="range" id="price-max" min="0" max="14" step="1" value="14" />
+            </div>
+          </div>
+          <div class="filter-row">
+            <label>Color identity visible</label>
+            <div class="color-chips" id="color-chips"></div>
+          </div>
+          <div class="filter-row toggle-row">
+            <label class="check-row">
+              <input type="checkbox" id="show-labels" checked />
+              Show cluster labels
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="hide-sparse-labels" checked />
+              Hide small clusters
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="search-row">
+        <input type="text" id="search" placeholder="Search name or oracle text…" autocomplete="off" />
+        <div id="search-results"></div>
+      </div>
+      <div id="placeholder" class="placeholder">
+        Click a node or search a card.<br>
+        Selected card lights up gold and its 20 semantic neighbors get outlined with edges.
+      </div>
+      <div id="card-detail" class="card-detail">
+        <div class="card-img-wrap"><img id="card-img" alt="" /></div>
+        <div class="card-name" id="card-name"></div>
+        <div class="card-meta">
+          <span id="card-type"></span>
+          <span id="card-mana"></span>
+          <span id="card-rarity"></span>
+        </div>
+        <div class="card-text" id="card-text"></div>
+        <div class="card-flavor" id="card-flavor"></div>
+        <div class="card-prices" id="card-prices"></div>
+        <div class="actions">
+          <button id="clear-selection">Clear</button>
+          <a id="scryfall-link" href="#" target="_blank" rel="noopener">View on Scryfall ↗</a>
+        </div>
+        <div class="section-header">Nearest neighbors (semantic)</div>
+        <div class="neighbor-list" id="neighbor-list"></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+// Surface uncaught errors as a visible banner instead of failing silently.
+window.addEventListener('error', (e) => {
+  const banner = document.createElement('div');
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#7f1d1d;color:#fff;padding:10px 14px;font:13px monospace;z-index:9999;white-space:pre-wrap';
+  banner.textContent = 'JS error: ' + (e.message || e.error) + (e.filename ? ' @ ' + e.filename + ':' + e.lineno : '');
+  document.body.appendChild(banner);
+});
+</script>
+
+<script type="module">
+import * as THREE from 'https://esm.sh/three@0.160.0';
+import { OrbitControls } from 'https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+const loadingMsg = document.getElementById('loading-msg');
+const loadingOverlay = document.getElementById('loading-overlay');
+loadingMsg.textContent = 'Fetching data…';
+const dataResp = await fetch('3d.json');
+if (!dataResp.ok) {
+  loadingMsg.textContent = 'Failed to load data: HTTP ' + dataResp.status;
+  throw new Error('Data fetch failed: ' + dataResp.status);
+}
+loadingMsg.textContent = 'Parsing…';
+const data = await dataResp.json();
+
+const POINT_META = data.point_meta;
+const POSITIONS = data.positions;
+const COLORS_HEX = data.colors_hex;
+const KNN_BY_OID = data.knn_by_oid;
+const OID_TO_IDX = data.oid_to_idx;
+const CLUSTER_LABELS = data.cluster_labels;
+const IDX_TO_OID = POINT_META.map(c => c.oracle_id);
+const N = POINT_META.length;
+
+const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
+
+// ===== Filter & overlay state =====
+const COLOR_BUCKETS = ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless'];
+const COLOR_HEX = {
+  'White': '#F5EEDC', 'Blue': '#3B82F6', 'Black': '#7A6FA0', 'Red': '#EF4444',
+  'Green': '#22C55E', 'Multicolor': '#FBBF24', 'Colorless': '#9CA3AF',
+};
+const FORMATS = ['standard', 'pioneer', 'modern', 'legacy', 'vintage', 'commander', 'pauper', 'brawl'];
+const PRICE_STOPS = [0, 0.10, 0.25, 0.50, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, Infinity];
+const PRICE_MAX_IDX = PRICE_STOPS.length - 1;
+function fmtPrice(i) {
+  const p = PRICE_STOPS[i];
+  if (p === 0) return '$0';
+  if (!isFinite(p)) return 'Any';
+  if (p < 10) return '$' + p.toFixed(2);
+  return '$' + p;
+}
+
+const filters = {
+  colorAxis: 'identity',
+  formats: new Set(),
+  types: new Set(),
+  sets: new Set(),
+  cmcMin: 0,
+  cmcMax: 11,
+  priceMin: 0,
+  priceMax: PRICE_MAX_IDX,
+  visibleColors: new Set(COLOR_BUCKETS),
+};
+function colorBucket(ci) {
+  if (!ci || ci.length === 0) return 'Colorless';
+  if (ci.length > 1) return 'Multicolor';
+  return {W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green'}[ci[0]] || 'Colorless';
+}
+// Detection priority puts dual-faced front-face types first so e.g.
+// "Battle — Siege // Creature — Dinosaur" classifies as 'battle'.
+const TYPE_DETECT = ['battle', 'planeswalker', 'land', 'creature', 'instant', 'sorcery', 'enchantment', 'artifact'];
+const TYPE_ORDER = ['land', 'creature', 'planeswalker', 'instant', 'sorcery', 'enchantment', 'artifact', 'battle'];
+function primaryType(typeLine) {
+  if (!typeLine) return 'Other';
+  const t = typeLine.toLowerCase();
+  for (const k of TYPE_DETECT) {
+    if (t.includes(k)) return k;
+  }
+  return 'Other';
+}
+const TYPE_COLOR = {
+  'land': '#9CA3AF', 'creature': '#22C55E', 'planeswalker': '#FBBF24',
+  'instant': '#3B82F6', 'sorcery': '#7A6FA0', 'enchantment': '#F5EEDC',
+  'artifact': '#A5A5A5', 'battle': '#EC4899', 'Other': '#666666',
+};
+// Weather-map heatmap: deep blue (low) → cyan → yellow → orange → red (high).
+const HEATMAP_HEX = ['#1e40af', '#06b6d4', '#fbbf24', '#f97316', '#dc2626'];
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+}
+const HEATMAP_RGB = HEATMAP_HEX.map(hexToRgb);
+function heatmap(t) {
+  t = Math.max(0, Math.min(1, t));
+  const i = Math.min(Math.floor(t * (HEATMAP_RGB.length - 1)), HEATMAP_RGB.length - 2);
+  const f = t * (HEATMAP_RGB.length - 1) - i;
+  return [
+    HEATMAP_RGB[i][0] + (HEATMAP_RGB[i+1][0] - HEATMAP_RGB[i][0]) * f,
+    HEATMAP_RGB[i][1] + (HEATMAP_RGB[i+1][1] - HEATMAP_RGB[i][1]) * f,
+    HEATMAP_RGB[i][2] + (HEATMAP_RGB[i+1][2] - HEATMAP_RGB[i][2]) * f,
+  ];
+}
+function rgbToHex(rgb) {
+  return '#' + rgb.map(c => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+}
+const edhrecRanks = POINT_META.map(c => c.edhrec_rank).filter(r => r != null);
+const EDHREC_MIN = Math.min(...edhrecRanks);
+const EDHREC_MAX = Math.max(...edhrecRanks);
+const prices = POINT_META.map(c => parseFloat(c.price_usd)).filter(p => !isNaN(p) && p > 0);
+const PRICE_LOG_MIN = Math.log10(Math.min(...prices));
+const PRICE_LOG_MAX = Math.log10(Math.max(...prices));
+const CMC_OVERLAY_MAX = 8;
+const DATE_MS = new Float64Array(POINT_META.length);
+let DATE_MIN_MS = Infinity, DATE_MAX_MS = -Infinity;
+for (let i = 0; i < POINT_META.length; i++) {
+  const s = POINT_META[i].released_at;
+  const ms = s ? Date.parse(s) : NaN;
+  DATE_MS[i] = ms;
+  if (!isNaN(ms)) {
+    if (ms < DATE_MIN_MS) DATE_MIN_MS = ms;
+    if (ms > DATE_MAX_MS) DATE_MAX_MS = ms;
+  }
+}
+
+function nodeColorForCard(card, idx) {
+  switch (filters.colorAxis) {
+    case 'identity':
+      return COLOR_HEX[colorBucket(card.color_identity)];
+    case 'edhrec': {
+      const r = card.edhrec_rank;
+      if (r == null) return '#444444';
+      const t = 1 - (r - EDHREC_MIN) / (EDHREC_MAX - EDHREC_MIN);
+      return rgbToHex(heatmap(t));
+    }
+    case 'price': {
+      const p = parseFloat(card.price_usd);
+      if (isNaN(p) || p <= 0) return '#333333';
+      const t = (Math.log10(p) - PRICE_LOG_MIN) / (PRICE_LOG_MAX - PRICE_LOG_MIN);
+      return rgbToHex(heatmap(t));
+    }
+    case 'type':
+      return TYPE_COLOR[primaryType(card.type_line)] || TYPE_COLOR.Other;
+    case 'cmc': {
+      const c = card.cmc;
+      if (c == null) return '#444444';
+      const t = Math.min(c, CMC_OVERLAY_MAX) / CMC_OVERLAY_MAX;
+      return rgbToHex(heatmap(t));
+    }
+    case 'release': {
+      const ms = DATE_MS[idx];
+      if (isNaN(ms)) return '#444444';
+      const t = (ms - DATE_MIN_MS) / (DATE_MAX_MS - DATE_MIN_MS);
+      return rgbToHex(heatmap(t));
+    }
+  }
+  return '#888888';
+}
+
+function cardVisible(card) {
+  if (!filters.visibleColors.has(colorBucket(card.color_identity))) return false;
+  if (filters.formats.size > 0) {
+    const leg = card.legalities || {};
+    let anyOk = false;
+    for (const f of filters.formats) {
+      if (leg[f] === 'legal') { anyOk = true; break; }
+    }
+    if (!anyOk) return false;
+  }
+  if (filters.types.size > 0 && !filters.types.has(primaryType(card.type_line))) return false;
+  if (filters.sets.size > 0 && !filters.sets.has(card.set)) return false;
+  const cmc = card.cmc;
+  if (cmc != null) {
+    if (cmc < filters.cmcMin) return false;
+    if (filters.cmcMax < 11 && cmc > filters.cmcMax) return false;
+  }
+  if (filters.priceMin > 0 || filters.priceMax < PRICE_MAX_IDX) {
+    const p = parseFloat(card.price_usd);
+    if (!isNaN(p) && p > 0) {
+      if (p < PRICE_STOPS[filters.priceMin]) return false;
+      const hi = PRICE_STOPS[filters.priceMax];
+      if (isFinite(hi) && p > hi) return false;
+    }
+  }
+  return true;
+}
+
+// ===== three.js scene =====
+const chartEl = document.getElementById('chart');
+const labelsLayer = document.getElementById('labels-layer');
+const hoverTooltip = document.getElementById('hover-tooltip');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0a0a0a');
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(chartEl.clientWidth, chartEl.clientHeight);
+chartEl.appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(60, chartEl.clientWidth / chartEl.clientHeight, 0.1, 5000);
+
+// Compute bounding box for initial camera framing.
+const bbox = {minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity};
+for (let i = 0; i < N; i++) {
+  const x = POSITIONS[i*3], y = POSITIONS[i*3+1], z = POSITIONS[i*3+2];
+  if (x < bbox.minX) bbox.minX = x;
+  if (x > bbox.maxX) bbox.maxX = x;
+  if (y < bbox.minY) bbox.minY = y;
+  if (y > bbox.maxY) bbox.maxY = y;
+  if (z < bbox.minZ) bbox.minZ = z;
+  if (z > bbox.maxZ) bbox.maxZ = z;
+}
+const cx = (bbox.minX + bbox.maxX) / 2;
+const cy = (bbox.minY + bbox.maxY) / 2;
+const cz = (bbox.minZ + bbox.maxZ) / 2;
+const extent = Math.max(bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, bbox.maxZ - bbox.minZ);
+camera.position.set(cx, cy, cz + extent * 1.6);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(cx, cy, cz);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.zoomSpeed = 1.2;
+controls.rotateSpeed = 0.7;
+
+// ===== Points (one draw call for all N cards) =====
+const BASE_POINT_SIZE = 5.0;
+const SELECTED_SIZE = 18.0;
+const NEIGHBOR_SIZE = 9.0;
+const DIM_FACTOR = 0.15;
+
+const initialColors = new Float32Array(N * 3);
+const initialSizes = new Float32Array(N);
+for (let i = 0; i < N; i++) {
+  const rgb = hexToRgb(nodeColorForCard(POINT_META[i], i));
+  initialColors[i*3] = rgb[0];
+  initialColors[i*3+1] = rgb[1];
+  initialColors[i*3+2] = rgb[2];
+  initialSizes[i] = BASE_POINT_SIZE;
+}
+
+const pointsGeometry = new THREE.BufferGeometry();
+pointsGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(POSITIONS), 3));
+pointsGeometry.setAttribute('color', new THREE.Float32BufferAttribute(initialColors, 3));
+pointsGeometry.setAttribute('size', new THREE.Float32BufferAttribute(initialSizes, 1));
+
+const pointsMaterial = new THREE.ShaderMaterial({
+  uniforms: {
+    uPixelRatio: { value: renderer.getPixelRatio() },
+    uViewportHeight: { value: chartEl.clientHeight },
+  },
+  vertexShader: `
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    varying float vSize;
+    uniform float uPixelRatio;
+    uniform float uViewportHeight;
+    void main() {
+      vColor = color;
+      vSize = size;
+      vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+      // Perspective-scale: points stay constant world-size until camera near, then shrink with distance.
+      gl_PointSize = size * (uViewportHeight * 0.5 / -mvPosition.z) * uPixelRatio;
+      if (size <= 0.0) gl_PointSize = 0.0;
+      gl_Position = projectionMatrix * mvPosition;
+    }
+  `,
+  fragmentShader: `
+    varying vec3 vColor;
+    varying float vSize;
+    void main() {
+      if (vSize <= 0.0) discard;
+      vec2 c = 2.0 * gl_PointCoord - 1.0;
+      float r2 = dot(c, c);
+      // Hard cutoff at the disc edge — points are opaque so depth ordering works
+      // (closer points correctly occlude farther ones; no alpha-blend overdraw).
+      if (r2 > 0.92) discard;
+      gl_FragColor = vec4(vColor, 1.0);
+    }
+  `,
+  transparent: false,
+  depthWrite: true,
+  depthTest: true,
+});
+
+const points = new THREE.Points(pointsGeometry, pointsMaterial);
+scene.add(points);
+
+const colorAttr = pointsGeometry.attributes.color;
+const sizeAttr = pointsGeometry.attributes.size;
+
+// ===== KNN edge lines (populated on selection) =====
+const edgeGeometry = new THREE.BufferGeometry();
+edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
+const edgeMaterial = new THREE.LineBasicMaterial({ color: 0xFBBF24, transparent: true, opacity: 0.85 });
+const edgeLines = new THREE.LineSegments(edgeGeometry, edgeMaterial);
+scene.add(edgeLines);
+
+// ===== Selection state =====
+const visibleByIndex = new Uint8Array(N).fill(1);
+const state = {
+  selectedIdx: -1,
+  highlightSet: new Set(),  // indices of selected + neighbors
+};
+
+// ===== Filter / re-render =====
+function applyFilters() {
+  for (let i = 0; i < N; i++) {
+    const card = POINT_META[i];
+    visibleByIndex[i] = cardVisible(card) ? 1 : 0;
+  }
+  rebuildAttributes();
+  updateLabelVisibility();
+}
+
+function rebuildAttributes() {
+  for (let i = 0; i < N; i++) {
+    const card = POINT_META[i];
+    const baseRgb = hexToRgb(nodeColorForCard(card, i));
+    let r = baseRgb[0], g = baseRgb[1], b = baseRgb[2], size = BASE_POINT_SIZE;
+    if (state.selectedIdx >= 0) {
+      if (i === state.selectedIdx) {
+        r = 0.984; g = 0.749; b = 0.141;  // gold
+        size = SELECTED_SIZE;
+      } else if (state.highlightSet.has(i)) {
+        r = 1.0; g = 1.0; b = 1.0;
+        size = NEIGHBOR_SIZE;
+      } else {
+        r *= DIM_FACTOR; g *= DIM_FACTOR; b *= DIM_FACTOR;
+      }
+    }
+    colorAttr.array[i*3] = r;
+    colorAttr.array[i*3+1] = g;
+    colorAttr.array[i*3+2] = b;
+    sizeAttr.array[i] = visibleByIndex[i] ? size : 0;
+  }
+  colorAttr.needsUpdate = true;
+  sizeAttr.needsUpdate = true;
+}
+
+function selectCard(oid) {
+  const idx = OID_TO_IDX[oid];
+  if (idx === undefined) return;
+  state.selectedIdx = idx;
+  const neighborOids = KNN_BY_OID[oid] || [];
+  const neighborIdxs = neighborOids.map(o => OID_TO_IDX[o]).filter(i => i !== undefined);
+  state.highlightSet = new Set(neighborIdxs);
+  rebuildAttributes();
+
+  // Build KNN edge lines (selected -> each neighbor).
+  const edgePos = new Float32Array(neighborIdxs.length * 6);
+  const sx = POSITIONS[idx*3], sy = POSITIONS[idx*3+1], sz = POSITIONS[idx*3+2];
+  for (let j = 0; j < neighborIdxs.length; j++) {
+    const ni = neighborIdxs[j];
+    edgePos[j*6]     = sx;
+    edgePos[j*6 + 1] = sy;
+    edgePos[j*6 + 2] = sz;
+    edgePos[j*6 + 3] = POSITIONS[ni*3];
+    edgePos[j*6 + 4] = POSITIONS[ni*3 + 1];
+    edgePos[j*6 + 5] = POSITIONS[ni*3 + 2];
+  }
+  edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(edgePos, 3));
+
+  // Camera tween to selected node (no full reframe — keep current zoom roughly).
+  const target = new THREE.Vector3(sx, sy, sz);
+  const startTarget = controls.target.clone();
+  const t0 = performance.now();
+  function tweenTarget() {
+    const u = Math.min(1, (performance.now() - t0) / 600);
+    const eased = 1 - Math.pow(1 - u, 3);
+    controls.target.lerpVectors(startTarget, target, eased);
+    if (u < 1) requestAnimationFrame(tweenTarget);
+  }
+  tweenTarget();
+
+  renderPanel(oid);
+}
+
+function clearSelection() {
+  state.selectedIdx = -1;
+  state.highlightSet = new Set();
+  rebuildAttributes();
+  edgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(0), 3));
+  document.getElementById('placeholder').style.display = 'block';
+  document.getElementById('card-detail').classList.remove('open');
+}
+
+// ===== Picking (Raycaster) =====
+const raycaster = new THREE.Raycaster();
+raycaster.params.Points.threshold = Math.max(1.5, extent * 0.006);
+const mouseNDC = new THREE.Vector2();
+
+function pickAt(clientX, clientY) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hits = raycaster.intersectObject(points, false);
+  // Filter hits: pick the closest visible point.
+  for (const h of hits) {
+    if (visibleByIndex[h.index]) return h.index;
+  }
+  return -1;
+}
+
+let mouseMoved = false;
+let downX = 0, downY = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  mouseMoved = false;
+  downX = e.clientX; downY = e.clientY;
+});
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (Math.abs(e.clientX - downX) > 3 || Math.abs(e.clientY - downY) > 3) mouseMoved = true;
+  // Hover tooltip
+  const idx = pickAt(e.clientX, e.clientY);
+  if (idx >= 0) {
+    hoverTooltip.textContent = POINT_META[idx].name;
+    hoverTooltip.style.left = (e.clientX + 12) + 'px';
+    hoverTooltip.style.top = (e.clientY + 12) + 'px';
+    hoverTooltip.style.display = 'block';
+  } else {
+    hoverTooltip.style.display = 'none';
+  }
+});
+renderer.domElement.addEventListener('pointerleave', () => { hoverTooltip.style.display = 'none'; });
+renderer.domElement.addEventListener('click', (e) => {
+  if (mouseMoved) return;  // orbit drag — not a click
+  const idx = pickAt(e.clientX, e.clientY);
+  if (idx >= 0) selectCard(IDX_TO_OID[idx]);
+  else clearSelection();
+});
+
+// ===== Cluster labels (DOM overlay, projected each frame) =====
+const labelElements = [];
+for (const lbl of CLUSTER_LABELS) {
+  const el = document.createElement('div');
+  el.className = 'cluster-label';
+  el.textContent = lbl.text;
+  labelsLayer.appendChild(el);
+  labelElements.push({el, pos: new THREE.Vector3(lbl.x, lbl.y, lbl.z), clusterId: lbl.cluster_id});
+}
+
+const SPARSE_LABEL_THRESHOLD = 10;
+const labelFilters = { showLabels: true, hideSparseLabels: true };
+const labelVisible = new Uint8Array(labelElements.length).fill(1);
+
+function updateLabelVisibility() {
+  if (!labelFilters.showLabels) {
+    for (let i = 0; i < labelElements.length; i++) {
+      labelVisible[i] = 0;
+      labelElements[i].el.style.display = 'none';
+    }
+    return;
+  }
+  if (!labelFilters.hideSparseLabels) {
+    for (let i = 0; i < labelElements.length; i++) {
+      labelVisible[i] = 1;
+    }
+    return;
+  }
+  const counts = new Map();
+  for (let i = 0; i < N; i++) {
+    if (!visibleByIndex[i]) continue;
+    const c = POINT_META[i].cluster;
+    if (c == null || c === -1) continue;
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+  for (let i = 0; i < labelElements.length; i++) {
+    const count = counts.get(labelElements[i].clusterId) || 0;
+    labelVisible[i] = count >= SPARSE_LABEL_THRESHOLD ? 1 : 0;
+  }
+}
+
+const projected = new THREE.Vector3();
+function repositionLabels() {
+  const width = chartEl.clientWidth;
+  const height = chartEl.clientHeight;
+  for (let i = 0; i < labelElements.length; i++) {
+    const lbl = labelElements[i];
+    if (!labelVisible[i]) { lbl.el.style.display = 'none'; continue; }
+    projected.copy(lbl.pos).project(camera);
+    if (projected.z > 1 || projected.z < -1) { lbl.el.style.display = 'none'; continue; }
+    const sx = (projected.x + 1) * 0.5 * width;
+    const sy = (-projected.y + 1) * 0.5 * height;
+    lbl.el.style.display = '';
+    lbl.el.style.transform = `translate(calc(${sx}px - 50%), calc(${sy}px - 50%))`;
+  }
+}
+
+// ===== Resize handling =====
+window.addEventListener('resize', () => {
+  const w = chartEl.clientWidth, h = chartEl.clientHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  pointsMaterial.uniforms.uViewportHeight.value = h;
+});
+
+// ===== Render loop =====
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  repositionLabels();
+}
+animate();
+updateLabelVisibility();
+loadingOverlay.style.display = 'none';
+
+function renderPanel(oid) {
+  const card = POINT_META[OID_TO_IDX[oid]];
+  if (!card) return;
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('card-detail').classList.add('open');
+  document.getElementById('card-img').src = card.image_normal || card.image_small || '';
+  document.getElementById('card-img').alt = card.name;
+  document.getElementById('card-name').textContent = card.name;
+  document.getElementById('card-type').textContent = card.type_line || '';
+  document.getElementById('card-mana').textContent = card.mana_cost || '';
+  document.getElementById('card-rarity').textContent = card.rarity || '';
+  document.getElementById('card-text').textContent = card.oracle_text || '';
+  const flavor = document.getElementById('card-flavor');
+  if (card.flavor_text) { flavor.textContent = '"' + card.flavor_text + '"'; flavor.style.display = ''; }
+  else { flavor.style.display = 'none'; }
+  const prices = document.getElementById('card-prices');
+  const bits = [];
+  if (card.price_usd) bits.push('<strong>$' + card.price_usd + '</strong>');
+  if (card.price_usd_foil) bits.push('foil <strong>$' + card.price_usd_foil + '</strong>');
+  if (card.set_name) bits.push(escapeHtml(card.set_name));
+  prices.innerHTML = bits.join(' · ');
+  document.getElementById('scryfall-link').href = card.scryfall_uri || '#';
+  renderNeighbors(oid);
+}
+
+function renderNeighbors(oid) {
+  const list = document.getElementById('neighbor-list');
+  const neighbors = KNN_BY_OID[oid] || [];
+  list.innerHTML = neighbors.slice(0, 10).map(noid => {
+    const c = POINT_META[OID_TO_IDX[noid]];
+    if (!c) return '';
+    return `<div class="neighbor" data-oid="${noid}">
+      <img src="${c.image_small || c.image_normal || ''}" alt="${escapeAttr(c.name)}" loading="lazy" />
+      <div class="n-name">${escapeHtml(c.name)}</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.neighbor').forEach(el => {
+    el.addEventListener('click', () => selectCard(el.dataset.oid));
+  });
+}
+
+// ===== Filter UI wiring =====
+document.getElementById('color-axis').addEventListener('change', (e) => {
+  filters.colorAxis = e.target.value;
+  applyFilters();
+  renderLegend();
+});
+
+const GRADIENT_LABELS = {
+  edhrec: ['Least played', 'Most played'],
+  price: ['Cheap', 'Expensive'],
+  cmc: ['Low', 'High'],
+  release: ['Oldest', 'Newest'],
+};
+const HEATMAP_CSS = HEATMAP_HEX.map((h, i) =>
+  `${h} ${(i / (HEATMAP_HEX.length - 1) * 100).toFixed(1)}%`
+).join(', ');
+
+function renderLegend() {
+  const el = document.getElementById('color-legend');
+  if (filters.colorAxis === 'identity') {
+    el.innerHTML = '<div class="legend-categorical">' + COLOR_BUCKETS.map(b =>
+      `<span class="legend-item"><span class="legend-dot" style="background:${COLOR_HEX[b]}"></span>${b}</span>`
+    ).join('') + '</div>';
+  } else if (filters.colorAxis === 'type') {
+    el.innerHTML = '<div class="legend-categorical">' + TYPE_ORDER.map(t =>
+      `<span class="legend-item"><span class="legend-dot" style="background:${TYPE_COLOR[t]}"></span>${t.charAt(0).toUpperCase() + t.slice(1)}</span>`
+    ).join('') + '</div>';
+  } else {
+    const [lo, hi] = GRADIENT_LABELS[filters.colorAxis];
+    el.innerHTML = `<div class="legend-gradient">
+      <div class="bar" style="background:linear-gradient(to right, ${HEATMAP_CSS})"></div>
+      <div class="labels"><span>${lo}</span><span>${hi}</span></div>
+    </div>`;
+  }
+}
+renderLegend();
+
+const formatChipsEl = document.getElementById('format-chips');
+formatChipsEl.innerHTML = FORMATS.map(f =>
+  `<span class="chip" data-format="${f}">${f}</span>`
+).join('');
+formatChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const f = el.dataset.format;
+    if (filters.formats.has(f)) { filters.formats.delete(f); el.classList.remove('active'); }
+    else { filters.formats.add(f); el.classList.add('active'); }
+    applyFilters();
+  });
+});
+
+const typeChipsEl = document.getElementById('type-chips');
+typeChipsEl.innerHTML = TYPE_ORDER.map(t =>
+  `<span class="chip" data-type="${t}">${t.charAt(0).toUpperCase() + t.slice(1)}</span>`
+).join('');
+typeChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const t = el.dataset.type;
+    if (filters.types.has(t)) { filters.types.delete(t); el.classList.remove('active'); }
+    else { filters.types.add(t); el.classList.add('active'); }
+    applyFilters();
+  });
+});
+
+const SETS_IN_DATA = [...new Set(POINT_META.map(c => c.set).filter(Boolean))].sort();
+const setInput = document.getElementById('set-input');
+const setOptionsEl = document.getElementById('set-options');
+const selectedSetsEl = document.getElementById('selected-sets');
+function renderSetOptions(query) {
+  const q = query.trim().toLowerCase();
+  const matches = SETS_IN_DATA.filter(s => s.includes(q) && !filters.sets.has(s)).slice(0, 30);
+  if (!matches.length) { setOptionsEl.classList.remove('open'); return; }
+  setOptionsEl.innerHTML = matches.map(s => `<div class="set-option" data-set="${s}">${s}</div>`).join('');
+  setOptionsEl.classList.add('open');
+  setOptionsEl.querySelectorAll('.set-option').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.add(el.dataset.set);
+      setInput.value = '';
+      setOptionsEl.classList.remove('open');
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+function renderSelectedSets() {
+  selectedSetsEl.innerHTML = [...filters.sets].sort().map(s =>
+    `<span class="selected-set-chip" data-set="${s}">${s} ×</span>`
+  ).join('');
+  selectedSetsEl.querySelectorAll('.selected-set-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.delete(el.dataset.set);
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+setInput.addEventListener('input', () => renderSetOptions(setInput.value));
+setInput.addEventListener('focus', () => renderSetOptions(setInput.value));
+document.addEventListener('click', (e) => {
+  if (!setInput.contains(e.target) && !setOptionsEl.contains(e.target)) setOptionsEl.classList.remove('open');
+});
+
+const cmcMin = document.getElementById('cmc-min');
+const cmcMax = document.getElementById('cmc-max');
+const cmcVals = document.getElementById('cmc-vals');
+function updateCmcLabel() {
+  const lo = parseInt(cmcMin.value);
+  const hi = parseInt(cmcMax.value);
+  cmcVals.textContent = `${lo}–${hi >= 11 ? '10+' : hi}`;
+}
+function onCmcChange() {
+  let lo = parseInt(cmcMin.value);
+  let hi = parseInt(cmcMax.value);
+  if (lo > hi) { if (this === cmcMin) { hi = lo; cmcMax.value = lo; } else { lo = hi; cmcMin.value = hi; } }
+  filters.cmcMin = lo;
+  filters.cmcMax = hi;
+  updateCmcLabel();
+  applyFilters();
+}
+cmcMin.addEventListener('input', onCmcChange);
+cmcMax.addEventListener('input', onCmcChange);
+updateCmcLabel();
+
+const priceMinEl = document.getElementById('price-min');
+const priceMaxEl = document.getElementById('price-max');
+const priceVals = document.getElementById('price-vals');
+function updatePriceLabel() {
+  priceVals.textContent = `${fmtPrice(parseInt(priceMinEl.value))} – ${fmtPrice(parseInt(priceMaxEl.value))}`;
+}
+function onPriceChange() {
+  let lo = parseInt(priceMinEl.value);
+  let hi = parseInt(priceMaxEl.value);
+  if (lo > hi) { if (this === priceMinEl) { hi = lo; priceMaxEl.value = lo; } else { lo = hi; priceMinEl.value = hi; } }
+  filters.priceMin = lo;
+  filters.priceMax = hi;
+  updatePriceLabel();
+  applyFilters();
+}
+priceMinEl.addEventListener('input', onPriceChange);
+priceMaxEl.addEventListener('input', onPriceChange);
+updatePriceLabel();
+
+const colorChipsEl = document.getElementById('color-chips');
+colorChipsEl.innerHTML = COLOR_BUCKETS.map(b =>
+  `<span class="chip color-chip" style="background:${COLOR_HEX[b]}" data-color="${b}" title="${b}"></span>`
+).join('');
+colorChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const b = el.dataset.color;
+    if (filters.visibleColors.has(b)) { filters.visibleColors.delete(b); el.classList.add('off'); }
+    else { filters.visibleColors.add(b); el.classList.remove('off'); }
+    applyFilters();
+  });
+});
+
+document.getElementById('show-labels').addEventListener('change', (e) => {
+  labelFilters.showLabels = e.target.checked;
+  updateLabelVisibility();
+});
+document.getElementById('hide-sparse-labels').addEventListener('change', (e) => {
+  labelFilters.hideSparseLabels = e.target.checked;
+  updateLabelVisibility();
+});
+
+document.getElementById('filter-header').addEventListener('click', () => {
+  document.getElementById('filter-section').classList.toggle('collapsed');
+  const span = document.getElementById('filter-header').querySelector('span');
+  span.textContent = span.textContent.startsWith('▾')
+    ? span.textContent.replace('▾', '▸') : span.textContent.replace('▸', '▾');
+});
+
+// Search
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+searchInput.addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) { searchResults.classList.remove('open'); searchResults.innerHTML = ''; return; }
+  const words = q.split(/\s+/).filter(Boolean);
+  const matches = [];
+  for (let i = 0; i < NAME_INDEX.length; i++) {
+    const nm = NAME_INDEX[i].name.toLowerCase();
+    const txt = (POINT_META[i].oracle_text || '').toLowerCase();
+    const nameHit = words.every(w => nm.includes(w));
+    const textHit = !nameHit && words.every(w => txt.includes(w));
+    if (nameHit || textHit) matches.push({...NAME_INDEX[i], textHit, score: nm.length});
+  }
+  if (!matches.length) { searchResults.classList.remove('open'); return; }
+  matches.sort((a, b) => a.score - b.score);
+  const top = matches.slice(0, 15);
+  searchResults.innerHTML = top.map(m =>
+    `<div class="search-result" data-oid="${m.oid}">${escapeHtml(m.name)}<span class="sr-type">${escapeHtml(m.type)}</span>${m.textHit ? '<span class="sr-text-hit">[text]</span>' : ''}</div>`
+  ).join('');
+  searchResults.classList.add('open');
+  searchResults.querySelectorAll('.search-result').forEach(el => {
+    el.addEventListener('click', () => {
+      const oid = el.dataset.oid;
+      selectCard(oid);
+      searchInput.value = POINT_META[OID_TO_IDX[oid]].name;
+      searchResults.classList.remove('open');
+    });
+  });
+});
+document.addEventListener('click', (e) => {
+  if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+    searchResults.classList.remove('open');
+  }
+});
+
+// Panel toggle
+const panel = document.getElementById('panel');
+const toggleBtn = document.getElementById('toggle-panel');
+toggleBtn.addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+  toggleBtn.textContent = panel.classList.contains('collapsed') ? '»' : '«';
+});
+
+document.getElementById('clear-selection').addEventListener('click', clearSelection);
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return escapeHtml(s); }
+</script>
+</body>
+</html>

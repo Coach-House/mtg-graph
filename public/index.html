@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MTG Graph — explore 33k Magic cards</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root { --bg: #0a0a0a; --panel-bg: #161616; --panel-border: #2a2a2a; --text: #e8e8e8; --text-dim: #888; --accent: #c9a227; --accent-bright: #fbbf24; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  main { max-width: 720px; padding: 48px 32px; }
+  h1 { font-size: 36px; margin: 0 0 8px; letter-spacing: -0.02em; }
+  .sub { color: var(--text-dim); font-size: 15px; line-height: 1.55; margin-bottom: 32px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 8px; padding: 20px; text-decoration: none; color: var(--text); transition: border-color 0.15s, transform 0.15s; }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card h2 { font-size: 22px; margin: 0 0 4px; color: var(--accent-bright); }
+  .card p { font-size: 13px; color: var(--text-dim); margin: 0; line-height: 1.5; }
+  .meta { color: var(--text-dim); font-size: 12px; margin-top: 32px; line-height: 1.6; }
+  .meta a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>MTG Graph</h1>
+  <p class="sub">An interactive map of <strong>33,683 Magic: The Gathering cards</strong> placed by semantic similarity. Cards close together share mechanics, themes, or text patterns. Embeddings via OpenAI <code>text-embedding-3-small</code>, projected with UMAP, clustered with HDBSCAN, labels via GPT-4o-mini.</p>
+  <div class="cards">
+    <a class="card" href="2d.html">
+      <h2>2D viewer →</h2>
+      <p>Fast and dense. Best for searching, filtering, and watching the timeline animate from 1993 → today.</p>
+    </a>
+    <a class="card" href="3d.html">
+      <h2>3D viewer →</h2>
+      <p>Orbit through the embedding space. Same filters, same data, different perspective on cluster structure.</p>
+    </a>
+  </div>
+  <p class="meta">Initial load fetches a ~95 MB JSON payload (gzipped to ~15-20 MB over the wire). Cached after first visit. Source: <a href="https://github.com/Coach-House/mtg-graph">github.com/Coach-House/mtg-graph</a></p>
+</main>
+</body>
+</html>

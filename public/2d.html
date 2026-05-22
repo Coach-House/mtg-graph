@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>MTG Graph — text-embedding-3-small (1536d)</title>
+<style>
+:root {
+  --bg: #0a0a0a;
+  --panel-bg: #161616;
+  --panel-border: #2a2a2a;
+  --text: #e8e8e8;
+  --text-dim: #888;
+  --accent: #c9a227;
+  --accent-bright: #fbbf24;
+  --input-bg: #1f1f1f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; height: 100%; overflow: hidden; }
+#app { display: flex; height: 100vh; width: 100vw; }
+#chart-wrap { flex: 1; min-width: 0; position: relative; overflow: hidden; background: var(--bg); }
+#chart { width: 100%; height: 100%; display: block; }
+#labels-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.cluster-label { position: absolute; color: #F0F0F0; font-size: 11px; font-weight: 700; font-family: 'Arial Black', sans-serif; text-shadow: 0 0 4px rgba(0,0,0,0.95), 0 1px 2px rgba(0,0,0,0.9); white-space: nowrap; transform: translate(-50%, -50%); }
+
+#panel {
+  width: 420px;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--panel-border);
+  overflow-y: auto;
+  transition: width 0.2s ease;
+  flex-shrink: 0;
+}
+#panel.collapsed { width: 0; border-left: none; }
+#panel.collapsed > * { display: none; }
+#toggle-panel {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 60px;
+  background: var(--panel-border);
+  color: var(--text);
+  border: none;
+  cursor: pointer;
+  border-radius: 4px 0 0 4px;
+  font-size: 12px;
+  font-family: monospace;
+  z-index: 10;
+}
+.panel-inner { padding: 16px; }
+.mode-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
+.mode-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); }
+.mode-switch { color: var(--accent); text-decoration: none; font-size: 12px; }
+.mode-switch:hover { color: var(--accent-bright); }
+.filter-section { margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--panel-border); }
+.filter-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); cursor: pointer; padding: 4px 0; user-select: none; }
+.filter-header:hover { color: var(--text); }
+.filter-header .chev { font-size: 10px; font-family: monospace; }
+.filter-section.collapsed .filter-body { display: none; }
+.filter-body { padding: 8px 0 4px; }
+.filter-row { margin-bottom: 12px; }
+.filter-row:last-child { margin-bottom: 0; }
+.filter-row label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+.filter-row select, .filter-row input[type=text] {
+  width: 100%; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--panel-border); padding: 5px 8px;
+  font-size: 12px; border-radius: 3px; outline: none;
+}
+.filter-row select:focus, .filter-row input[type=text]:focus { border-color: var(--accent); }
+.format-chips, .color-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip {
+  font-size: 11px; padding: 3px 8px; border-radius: 11px;
+  background: var(--input-bg); color: var(--text-dim);
+  border: 1px solid var(--panel-border); cursor: pointer;
+  user-select: none;
+}
+.chip.active { color: var(--text); border-color: var(--accent); background: rgba(201,162,39,0.1); }
+.chip.color-chip { width: 22px; height: 22px; padding: 0; border-radius: 50%; border: 2px solid transparent; position: relative; }
+.chip.color-chip.off { opacity: 0.25; border-color: var(--panel-border); }
+.chip.color-chip[title]:hover::after {
+  content: attr(title); position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+  background: var(--input-bg); color: var(--text); padding: 3px 7px; border-radius: 3px;
+  font-size: 10px; white-space: nowrap; border: 1px solid var(--panel-border);
+}
+.cmc-row { display: flex; align-items: center; gap: 8px; }
+.cmc-row input[type=range] { flex: 1; accent-color: var(--accent); }
+.cmc-row .cmc-vals { font-size: 11px; color: var(--text-dim); min-width: 32px; text-align: right; }
+.set-options { max-height: 140px; overflow-y: auto; background: var(--input-bg); border: 1px solid var(--panel-border); border-radius: 3px; margin-top: 4px; display: none; }
+.set-options.open { display: block; }
+.set-option { padding: 4px 8px; font-size: 11px; cursor: pointer; }
+.set-option:hover { background: var(--panel-border); }
+.set-option.selected { color: var(--accent-bright); }
+.selected-sets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.selected-set-chip { background: rgba(201,162,39,0.15); color: var(--accent-bright); border: 1px solid var(--accent); padding: 2px 6px; border-radius: 3px; font-size: 10px; cursor: pointer; }
+.selected-set-chip:hover { background: rgba(201,162,39,0.25); }
+.sr-text-hit { color: var(--accent-bright); font-size: 10px; margin-left: 6px; }
+.search-row { position: relative; margin-bottom: 16px; }
+#search {
+  width: 100%;
+  background: var(--input-bg);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  padding: 8px 10px;
+  font-size: 14px;
+  border-radius: 4px;
+  outline: none;
+}
+#search:focus { border-color: var(--accent); }
+#search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-top: none;
+  max-height: 280px;
+  overflow-y: auto;
+  z-index: 20;
+  display: none;
+}
+#search-results.open { display: block; }
+.search-result {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.search-result:hover { background: var(--panel-border); color: var(--accent-bright); }
+.search-result .sr-type { color: var(--text-dim); font-size: 11px; margin-left: 6px; }
+
+.placeholder { color: var(--text-dim); padding: 40px 16px; text-align: center; font-size: 14px; line-height: 1.6; }
+.card-detail { display: none; }
+.card-detail.open { display: block; }
+.card-img-wrap { text-align: center; margin-bottom: 12px; }
+.card-img-wrap img { max-width: 100%; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+.card-name { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+.card-meta { color: var(--text-dim); font-size: 12px; margin-bottom: 12px; }
+.card-meta span + span::before { content: " · "; margin: 0 4px; }
+.card-text { font-size: 13px; line-height: 1.55; background: var(--input-bg); padding: 10px 12px; border-radius: 4px; border-left: 3px solid var(--accent); white-space: pre-wrap; margin-bottom: 12px; }
+.card-flavor { font-size: 12px; line-height: 1.5; color: var(--text-dim); font-style: italic; margin-bottom: 12px; padding: 0 4px; }
+.card-prices { font-size: 12px; color: var(--text-dim); margin-bottom: 16px; }
+.card-prices strong { color: var(--text); }
+
+.section-header { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin: 16px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--panel-border); }
+.neighbor-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.neighbor {
+  display: flex; flex-direction: column;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 6px; cursor: pointer;
+  transition: border-color 0.1s;
+}
+.neighbor:hover { border-color: var(--accent); }
+.neighbor img { width: 100%; border-radius: 3px; }
+.neighbor .n-name { font-size: 11px; margin-top: 4px; line-height: 1.3; }
+.actions { display: flex; gap: 8px; margin-top: 12px; }
+.actions button, .actions a {
+  flex: 1; background: var(--input-bg); color: var(--text);
+  border: 1px solid var(--panel-border);
+  padding: 7px 10px; font-size: 12px; border-radius: 4px;
+  cursor: pointer; text-decoration: none; text-align: center;
+}
+.actions button:hover, .actions a:hover { border-color: var(--accent); color: var(--accent-bright); }
+
+#status-bar { position: absolute; bottom: 10px; left: 14px; font-size: 11px; color: var(--text-dim); pointer-events: none; z-index: 5; }
+#loading-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; background: var(--bg); z-index: 50; color: var(--text-dim); font-size: 13px; }
+#loading-overlay .spinner { width: 28px; height: 28px; border: 2px solid var(--panel-border); border-top-color: var(--accent-bright); border-radius: 50%; animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.color-legend { margin-top: 8px; }
+.legend-categorical { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--text-dim); font-size: 11px; line-height: 1.4; }
+.legend-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4); }
+.legend-gradient .bar { height: 10px; border-radius: 2px; }
+.legend-gradient .labels { display: flex; justify-content: space-between; font-size: 10px; color: var(--text-dim); margin-top: 3px; }
+.check-row { display: flex !important; align-items: center; gap: 6px; cursor: pointer; color: var(--text-dim); font-size: 11px; margin-bottom: 0 !important; }
+.check-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+.toggle-row { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.timeline-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.timeline-row #play-btn {
+  width: 28px; height: 28px; background: var(--input-bg); color: var(--accent-bright);
+  border: 1px solid var(--panel-border); border-radius: 4px; cursor: pointer;
+  font-size: 13px; flex-shrink: 0; padding: 0;
+}
+.timeline-row #play-btn:hover { border-color: var(--accent); }
+.timeline-row #date-slider { flex: 1; accent-color: var(--accent); min-width: 0; }
+.timeline-row #date-label { font-size: 11px; color: var(--text-dim); min-width: 70px; text-align: right; font-variant-numeric: tabular-nums; }
+.speed-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--text-dim); }
+.speed-row select { background: var(--input-bg); color: var(--text); border: 1px solid var(--panel-border); padding: 2px 6px; font-size: 11px; border-radius: 3px; outline: none; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="chart-wrap">
+    <div id="chart"></div>
+    <div id="labels-layer"></div>
+    <div id="loading-overlay"><div class="spinner"></div><div id="loading-msg">Loading 33k cards…</div></div>
+    <div id="status-bar">Click any card · scroll to zoom · drag to pan</div>
+  </div>
+  <button id="toggle-panel" title="Toggle panel">«</button>
+  <aside id="panel">
+    <div class="panel-inner">
+      <div class="mode-row">
+        <span class="mode-label">2D</span>
+        <a class="mode-switch" href="3d.html">Switch to 3D →</a>
+      </div>
+      <div class="filter-section" id="filter-section">
+        <div class="filter-header" id="filter-header">
+          <span>▾ Filters &amp; Overlays</span>
+        </div>
+        <div class="filter-body">
+          <div class="filter-row">
+            <label for="color-axis">Color by</label>
+            <select id="color-axis">
+              <option value="identity">Color identity</option>
+              <option value="edhrec">EDHREC rank (popularity)</option>
+              <option value="price">Price (USD)</option>
+              <option value="type">Card type</option>
+              <option value="cmc">Mana value</option>
+              <option value="release">Release date</option>
+            </select>
+            <div id="color-legend" class="color-legend"></div>
+          </div>
+          <div class="filter-row">
+            <label>Format</label>
+            <div class="format-chips" id="format-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label>Card type</label>
+            <div class="format-chips" id="type-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label for="set-input">Set</label>
+            <input type="text" id="set-input" placeholder="Type to filter sets…" autocomplete="off" />
+            <div class="set-options" id="set-options"></div>
+            <div class="selected-sets" id="selected-sets"></div>
+          </div>
+          <div class="filter-row">
+            <label>Mana value <span class="cmc-vals" id="cmc-vals">0–10+</span></label>
+            <div class="cmc-row">
+              <input type="range" id="cmc-min" min="0" max="11" step="1" value="0" />
+              <input type="range" id="cmc-max" min="0" max="11" step="1" value="11" />
+            </div>
+          </div>
+          <div class="filter-row">
+            <label>Price <span class="cmc-vals" id="price-vals">$0 – Any</span></label>
+            <div class="cmc-row">
+              <input type="range" id="price-min" min="0" max="14" step="1" value="0" />
+              <input type="range" id="price-max" min="0" max="14" step="1" value="14" />
+            </div>
+          </div>
+          <div class="filter-row">
+            <label>Color identity visible</label>
+            <div class="color-chips" id="color-chips"></div>
+          </div>
+          <div class="filter-row">
+            <label>Release timeline <span class="cmc-vals" id="date-label">All</span></label>
+            <div class="timeline-row">
+              <button id="play-btn" title="Play / pause">▶</button>
+              <input type="range" id="date-slider" min="0" max="100" step="1" value="100" />
+            </div>
+            <div class="speed-row">
+              <span>Speed</span>
+              <select id="play-speed">
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="5">5×</option>
+                <option value="10">10×</option>
+              </select>
+              <span style="margin-left:auto">years / sec</span>
+            </div>
+          </div>
+          <div class="filter-row toggle-row">
+            <label class="check-row">
+              <input type="checkbox" id="show-labels" checked />
+              Show cluster labels
+            </label>
+            <label class="check-row">
+              <input type="checkbox" id="hide-sparse-labels" checked />
+              Hide small clusters
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="search-row">
+        <input type="text" id="search" placeholder="Search name or oracle text…" autocomplete="off" />
+        <div id="search-results"></div>
+      </div>
+      <div id="placeholder" class="placeholder">
+        Click a point or search a card.<br>
+        Selected card lights up gold and its 20 semantic neighbors get outlined with edges.
+      </div>
+      <div id="card-detail" class="card-detail">
+        <div class="card-img-wrap"><img id="card-img" alt="" /></div>
+        <div class="card-name" id="card-name"></div>
+        <div class="card-meta">
+          <span id="card-type"></span>
+          <span id="card-mana"></span>
+          <span id="card-rarity"></span>
+        </div>
+        <div class="card-text" id="card-text"></div>
+        <div class="card-flavor" id="card-flavor"></div>
+        <div class="card-prices" id="card-prices"></div>
+        <div class="actions">
+          <button id="clear-selection">Clear</button>
+          <a id="scryfall-link" href="#" target="_blank" rel="noopener">View on Scryfall ↗</a>
+        </div>
+        <div class="section-header">Nearest neighbors (semantic)</div>
+        <div class="neighbor-list" id="neighbor-list"></div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script type="module">
+import { Graph } from 'https://esm.sh/@cosmos.gl/graph@2.6.4';
+
+// Fetch the data payload separately so the HTML stays small and the JSON
+// can be gzip-compressed + edge-cached by the host (~5-6× wire-size reduction).
+const loadingMsg = document.getElementById('loading-msg');
+const loadingOverlay = document.getElementById('loading-overlay');
+loadingMsg.textContent = 'Fetching data…';
+const dataResp = await fetch('2d.json');
+if (!dataResp.ok) {
+  loadingMsg.textContent = 'Failed to load data: HTTP ' + dataResp.status;
+  throw new Error('Data fetch failed: ' + dataResp.status);
+}
+loadingMsg.textContent = 'Parsing…';
+const data = await dataResp.json();
+
+const POINT_META = data.point_meta;
+const POINT_POSITIONS = new Float32Array(data.point_positions);
+const POINT_COLORS = new Float32Array(data.point_colors);
+const LINKS = new Float32Array(data.links);
+const CLUSTER_LABELS = data.cluster_labels;
+const OID_TO_IDX = data.oid_to_idx;
+const IDX_TO_OID = data.idx_to_oid;
+const KNN_BY_OID = data.knn_by_oid;
+
+const NAME_INDEX = POINT_META.map(c => ({oid: c.oracle_id, name: c.name, type: c.type_line || ''}));
+
+let neighborMode = 'semantic';
+
+// ===== Filter & overlay state =====
+const COLOR_BUCKETS = ['White', 'Blue', 'Black', 'Red', 'Green', 'Multicolor', 'Colorless'];
+const COLOR_HEX = {
+  'White': '#F5EEDC', 'Blue': '#3B82F6', 'Black': '#7A6FA0', 'Red': '#EF4444',
+  'Green': '#22C55E', 'Multicolor': '#FBBF24', 'Colorless': '#9CA3AF',
+};
+const FORMATS = ['standard', 'pioneer', 'modern', 'legacy', 'vintage', 'commander', 'pauper', 'brawl'];
+
+// Discrete log-spaced price ladder. Slider index 0..14, where 0 = "$0 (no min)"
+// and 14 = "Any (no max)". Indices in between are exact dollar stops.
+const PRICE_STOPS = [0, 0.10, 0.25, 0.50, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, Infinity];
+const PRICE_MAX_IDX = PRICE_STOPS.length - 1;
+function fmtPrice(i) {
+  const p = PRICE_STOPS[i];
+  if (p === 0) return '$0';
+  if (!isFinite(p)) return 'Any';
+  if (p < 10) return '$' + p.toFixed(2);
+  return '$' + p;
+}
+
+// Precompute release-date ms once. ~33k Date.parse calls at load time, then O(1) lookups.
+const DATE_MS = new Float64Array(POINT_META.length);
+let DATE_MIN_MS = Infinity, DATE_MAX_MS = -Infinity;
+for (let i = 0; i < POINT_META.length; i++) {
+  const s = POINT_META[i].released_at;
+  const ms = s ? Date.parse(s) : NaN;
+  DATE_MS[i] = ms;
+  if (!isNaN(ms)) {
+    if (ms < DATE_MIN_MS) DATE_MIN_MS = ms;
+    if (ms > DATE_MAX_MS) DATE_MAX_MS = ms;
+  }
+}
+
+const filters = {
+  colorAxis: 'identity',
+  formats: new Set(),        // empty = no format filter
+  types: new Set(),          // empty = no type filter
+  sets: new Set(),
+  cmcMin: 0,
+  cmcMax: 11,                // 11 = "10+" = no upper limit
+  priceMin: 0,               // index into PRICE_STOPS; 0 = no lower limit
+  priceMax: PRICE_MAX_IDX,   // PRICE_MAX_IDX = "Any" = no upper limit
+  visibleColors: new Set(COLOR_BUCKETS),  // all visible by default
+  dateMaxMs: DATE_MAX_MS,    // hide cards released after this date; default = show all
+  showLabels: true,          // master toggle for all cluster labels
+  hideSparseLabels: true,    // hide labels whose cluster has < SPARSE_LABEL_THRESHOLD visible cards
+};
+const SPARSE_LABEL_THRESHOLD = 10;
+
+function colorBucket(ci) {
+  if (!ci || ci.length === 0) return 'Colorless';
+  if (ci.length > 1) return 'Multicolor';
+  return {W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green'}[ci[0]] || 'Colorless';
+}
+
+function hexToRgb(hex) {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+}
+
+// Primary card type extracted from "Legendary Creature — Elf Druid".
+// Detection priority puts dual-faced front-face types first (battle, planeswalker)
+// so e.g. "Battle — Siege // Creature — Dinosaur" classifies as 'battle'.
+const TYPE_DETECT = ['battle', 'planeswalker', 'land', 'creature', 'instant', 'sorcery', 'enchantment', 'artifact'];
+const TYPE_ORDER = ['land', 'creature', 'planeswalker', 'instant', 'sorcery', 'enchantment', 'artifact', 'battle'];
+function primaryType(typeLine) {
+  if (!typeLine) return 'Other';
+  const t = typeLine.toLowerCase();
+  for (const k of TYPE_DETECT) {
+    if (t.includes(k)) return k;
+  }
+  return 'Other';
+}
+const TYPE_COLOR = {
+  'land': '#9CA3AF', 'creature': '#22C55E', 'planeswalker': '#FBBF24',
+  'instant': '#3B82F6', 'sorcery': '#7A6FA0', 'enchantment': '#F5EEDC',
+  'artifact': '#A5A5A5', 'battle': '#EC4899', 'Other': '#666666',
+};
+
+// Weather-map heatmap: deep blue (low) → cyan → yellow → orange → red (high).
+const HEATMAP_HEX = ['#1e40af', '#06b6d4', '#fbbf24', '#f97316', '#dc2626'];
+const HEATMAP_RGB = HEATMAP_HEX.map(hexToRgb);
+function heatmap(t) {
+  t = Math.max(0, Math.min(1, t));
+  const i = Math.min(Math.floor(t * (HEATMAP_RGB.length - 1)), HEATMAP_RGB.length - 2);
+  const f = t * (HEATMAP_RGB.length - 1) - i;
+  return [
+    HEATMAP_RGB[i][0] + (HEATMAP_RGB[i+1][0] - HEATMAP_RGB[i][0]) * f,
+    HEATMAP_RGB[i][1] + (HEATMAP_RGB[i+1][1] - HEATMAP_RGB[i][1]) * f,
+    HEATMAP_RGB[i][2] + (HEATMAP_RGB[i+1][2] - HEATMAP_RGB[i][2]) * f,
+  ];
+}
+
+// Precompute min/max for numeric overlays.
+const edhrecRanks = POINT_META.map(c => c.edhrec_rank).filter(r => r != null);
+const EDHREC_MIN = Math.min(...edhrecRanks);
+const EDHREC_MAX = Math.max(...edhrecRanks);
+const prices = POINT_META.map(c => parseFloat(c.price_usd)).filter(p => !isNaN(p) && p > 0);
+const PRICE_LOG_MIN = Math.log10(Math.min(...prices));
+const PRICE_LOG_MAX = Math.log10(Math.max(...prices));
+const CMC_OVERLAY_MAX = 8;
+
+function pointRgbFor(card, idx) {
+  switch (filters.colorAxis) {
+    case 'identity':
+      return hexToRgb(COLOR_HEX[colorBucket(card.color_identity)]);
+    case 'edhrec': {
+      const r = card.edhrec_rank;
+      if (r == null) return hexToRgb('#444444');
+      const t = 1 - (r - EDHREC_MIN) / (EDHREC_MAX - EDHREC_MIN); // 1 = top-played
+      return heatmap(t);
+    }
+    case 'price': {
+      const p = parseFloat(card.price_usd);
+      if (isNaN(p) || p <= 0) return hexToRgb('#333333');
+      const t = (Math.log10(p) - PRICE_LOG_MIN) / (PRICE_LOG_MAX - PRICE_LOG_MIN);
+      return heatmap(t);
+    }
+    case 'type':
+      return hexToRgb(TYPE_COLOR[primaryType(card.type_line)] || TYPE_COLOR.Other);
+    case 'cmc': {
+      const c = card.cmc;
+      if (c == null) return hexToRgb('#444444');
+      const t = Math.min(c, CMC_OVERLAY_MAX) / CMC_OVERLAY_MAX;
+      return heatmap(t);
+    }
+    case 'release': {
+      const ms = DATE_MS[idx];
+      if (isNaN(ms)) return hexToRgb('#444444');
+      const t = (ms - DATE_MIN_MS) / (DATE_MAX_MS - DATE_MIN_MS);
+      return heatmap(t);
+    }
+  }
+  return hexToRgb('#888888');
+}
+
+function cardVisible(card, idx) {
+  // Release date timeline: cards released after current cursor are hidden.
+  // Unknown release date passes through (rare).
+  if (filters.dateMaxMs < DATE_MAX_MS) {
+    const ms = DATE_MS[idx];
+    if (!isNaN(ms) && ms > filters.dateMaxMs) return false;
+  }
+  // Color identity visibility
+  if (!filters.visibleColors.has(colorBucket(card.color_identity))) return false;
+  // Format filter (cards must be legal in AT LEAST ONE selected format)
+  if (filters.formats.size > 0) {
+    const leg = card.legalities || {};
+    let anyOk = false;
+    for (const f of filters.formats) {
+      if (leg[f] === 'legal') { anyOk = true; break; }
+    }
+    if (!anyOk) return false;
+  }
+  // Card type filter
+  if (filters.types.size > 0 && !filters.types.has(primaryType(card.type_line))) return false;
+  // Set filter
+  if (filters.sets.size > 0 && !filters.sets.has(card.set)) return false;
+  // Mana value range
+  const cmc = card.cmc;
+  if (cmc != null) {
+    if (cmc < filters.cmcMin) return false;
+    if (filters.cmcMax < 11 && cmc > filters.cmcMax) return false;
+  }
+  // Price range (null-price cards pass through, same as null-cmc behavior)
+  if (filters.priceMin > 0 || filters.priceMax < PRICE_MAX_IDX) {
+    const p = parseFloat(card.price_usd);
+    if (!isNaN(p) && p > 0) {
+      if (p < PRICE_STOPS[filters.priceMin]) return false;
+      const hi = PRICE_STOPS[filters.priceMax];
+      if (isFinite(hi) && p > hi) return false;
+    }
+  }
+  return true;
+}
+
+// Track filter state so onClick can ignore clicks on invisible cards.
+const visibleByIndex = new Uint8Array(POINT_META.length).fill(1);
+
+function applyFilters() {
+  const colors = new Float32Array(POINT_META.length * 4);
+  for (let i = 0; i < POINT_META.length; i++) {
+    const card = POINT_META[i];
+    const [r, g, b] = pointRgbFor(card, i);
+    const visible = cardVisible(card, i);
+    visibleByIndex[i] = visible ? 1 : 0;
+    colors[i * 4] = r;
+    colors[i * 4 + 1] = g;
+    colors[i * 4 + 2] = b;
+    // alpha=0 in cosmos.gl shader → finalPointAlpha = 0 → fully transparent.
+    // (setPointSizes is unreliable in this version; alpha is the supported path.)
+    colors[i * 4 + 3] = visible ? 1.0 : 0.0;
+  }
+  graph.setPointColors(colors);
+  // Filter the KNN edge buffer to only pairs where both endpoints are still visible,
+  // so the yellow web shrinks alongside the points as filters/timeline tighten.
+  let visibleEdgeCount = 0;
+  for (let i = 0; i < LINKS.length; i += 2) {
+    if (visibleByIndex[LINKS[i]] && visibleByIndex[LINKS[i+1]]) visibleEdgeCount++;
+  }
+  const filteredLinks = new Float32Array(visibleEdgeCount * 2);
+  let j = 0;
+  for (let i = 0; i < LINKS.length; i += 2) {
+    const src = LINKS[i], tgt = LINKS[i+1];
+    if (visibleByIndex[src] && visibleByIndex[tgt]) {
+      filteredLinks[j++] = src;
+      filteredLinks[j++] = tgt;
+    }
+  }
+  graph.setLinks(filteredLinks);
+  graph.render();
+  updateLabelVisibility();
+}
+
+let selectedOid = null;
+const chartDiv = document.getElementById('chart');
+const labelsLayer = document.getElementById('labels-layer');
+
+const config = {
+  spaceSize: 4096,
+  enableSimulation: false,
+  backgroundColor: '#0a0a0a',
+  pointSize: 4,
+  pointSizeScale: 1.0,
+  pointGreyoutOpacity: 0.07,
+  scalePointsOnZoom: true,
+
+  linkColor: '#FBBF24',
+  linkWidth: 0.6,
+  linkOpacity: 0.04,
+  linkGreyoutOpacity: 0.0,
+  linkArrows: false,
+  curvedLinks: false,
+
+  fitViewOnInit: true,
+  fitViewPadding: 0.08,
+  enableDrag: false,
+
+  hoveredPointCursor: 'pointer',
+  renderHoveredPointRing: true,
+  hoveredPointRingColor: '#FBBF24',
+
+  focusedPointRingColor: '#FBBF24',
+
+  onClick: handleClick,
+  onZoom: () => requestAnimationFrame(updateClusterLabels),
+};
+
+const graph = new Graph(chartDiv, config);
+// Second arg `true` = dontRescale: pass our coords through unchanged.
+// Without this, Cosmograph auto-rescales positions into ~10% of spaceSize,
+// which makes points form a tight central blob while the cluster-label
+// overlay (which uses spaceToScreenPosition with the un-rescaled domain)
+// spreads across the viewport.
+graph.setPointPositions(POINT_POSITIONS, true);
+graph.setPointColors(POINT_COLORS);
+graph.setLinks(LINKS);
+graph.render();
+loadingOverlay.style.display = 'none';
+
+// Build cluster label DOM nodes once.
+const labelElements = [];
+for (const lbl of CLUSTER_LABELS) {
+  const el = document.createElement('div');
+  el.className = 'cluster-label';
+  el.textContent = lbl.text;
+  labelsLayer.appendChild(el);
+  labelElements.push({el, x: lbl.x, y: lbl.y, clusterId: lbl.cluster_id});
+}
+
+function updateClusterLabels() {
+  for (const {el, x, y} of labelElements) {
+    try {
+      const screen = graph.spaceToScreenPosition([x, y]);
+      el.style.transform = `translate(calc(${screen[0]}px - 50%), calc(${screen[1]}px - 50%))`;
+    } catch (e) { /* graph not ready yet */ }
+  }
+}
+
+function updateLabelVisibility() {
+  if (!filters.showLabels) {
+    for (const lbl of labelElements) lbl.el.style.display = 'none';
+    return;
+  }
+  if (!filters.hideSparseLabels) {
+    for (const lbl of labelElements) lbl.el.style.display = '';
+    return;
+  }
+  const counts = new Map();
+  for (let i = 0; i < POINT_META.length; i++) {
+    if (!visibleByIndex[i]) continue;
+    const c = POINT_META[i].cluster;
+    if (c == null || c === -1) continue;
+    counts.set(c, (counts.get(c) || 0) + 1);
+  }
+  for (const lbl of labelElements) {
+    const count = counts.get(lbl.clusterId) || 0;
+    lbl.el.style.display = count >= SPARSE_LABEL_THRESHOLD ? '' : 'none';
+  }
+}
+
+// Kick label positioning periodically until graph is ready (fitViewOnInit fires async).
+let labelKick = 0;
+function kickLabels() {
+  updateClusterLabels();
+  labelKick++;
+  if (labelKick < 40) setTimeout(kickLabels, 100);
+}
+kickLabels();
+// Initial sparse-label pass: visibleByIndex defaults to all-1, so counts reflect
+// raw cluster sizes; small clusters (< threshold) are hidden from the get-go.
+updateLabelVisibility();
+
+function handleClick(index) {
+  if (index === undefined || index === null) {
+    clearSelection();
+    return;
+  }
+  // Ignore clicks on filter-hidden points (alpha=0 still receives pick events).
+  if (!visibleByIndex[index]) return;
+  const oid = IDX_TO_OID[index];
+  if (oid) selectCard(oid);
+}
+
+function selectCard(oid) {
+  const idx = OID_TO_IDX[oid];
+  if (idx === undefined) return;
+  selectedOid = oid;
+  // selectPointByIndex with selectAdjacentPoints=true highlights selected + neighbors via the links graph.
+  graph.selectPointByIndex(idx, true);
+  graph.zoomToPointByIndex(idx, 1200, undefined, true);
+  renderPanel(oid);
+}
+
+function clearSelection() {
+  selectedOid = null;
+  graph.unselectPoints();
+  document.getElementById('placeholder').style.display = 'block';
+  document.getElementById('card-detail').classList.remove('open');
+}
+
+function renderPanel(oid) {
+  const card = POINT_META[OID_TO_IDX[oid]];
+  if (!card) return;
+  document.getElementById('placeholder').style.display = 'none';
+  document.getElementById('card-detail').classList.add('open');
+  document.getElementById('card-img').src = card.image_normal || card.image_small || '';
+  document.getElementById('card-img').alt = card.name;
+  document.getElementById('card-name').textContent = card.name;
+  document.getElementById('card-type').textContent = card.type_line || '';
+  document.getElementById('card-mana').textContent = card.mana_cost || '';
+  document.getElementById('card-rarity').textContent = card.rarity || '';
+  document.getElementById('card-text').textContent = card.oracle_text || '';
+  const flavor = document.getElementById('card-flavor');
+  if (card.flavor_text) { flavor.textContent = '"' + card.flavor_text + '"'; flavor.style.display = ''; }
+  else { flavor.style.display = 'none'; }
+  const prices = document.getElementById('card-prices');
+  const bits = [];
+  if (card.price_usd) bits.push('<strong>$' + card.price_usd + '</strong>');
+  if (card.price_usd_foil) bits.push('foil <strong>$' + card.price_usd_foil + '</strong>');
+  if (card.set_name) bits.push(escapeHtml(card.set_name));
+  prices.innerHTML = bits.join(' · ');
+  document.getElementById('scryfall-link').href = card.scryfall_uri || '#';
+  renderNeighbors(oid);
+}
+
+function renderNeighbors(oid) {
+  const list = document.getElementById('neighbor-list');
+  const neighbors = KNN_BY_OID[oid] || [];
+  list.innerHTML = neighbors.slice(0, 10).map(noid => {
+    const c = POINT_META[OID_TO_IDX[noid]];
+    if (!c) return '';
+    return `<div class="neighbor" data-oid="${noid}">
+      <img src="${c.image_small || c.image_normal || ''}" alt="${escapeAttr(c.name)}" loading="lazy" />
+      <div class="n-name">${escapeHtml(c.name)}</div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('.neighbor').forEach(el => {
+    el.addEventListener('click', () => selectCard(el.dataset.oid));
+  });
+}
+
+// ===== Filter UI wiring =====
+
+// Color axis dropdown
+document.getElementById('color-axis').addEventListener('change', (e) => {
+  filters.colorAxis = e.target.value;
+  applyFilters();
+  renderLegend();
+});
+
+// Legend under "Color by" — categorical chips OR a gradient bar.
+const GRADIENT_LABELS = {
+  edhrec: ['Least played', 'Most played'],
+  price: ['Cheap', 'Expensive'],
+  cmc: ['Low', 'High'],
+  release: ['Oldest', 'Newest'],
+};
+const HEATMAP_CSS = HEATMAP_HEX.map((h, i) =>
+  `${h} ${(i / (HEATMAP_HEX.length - 1) * 100).toFixed(1)}%`
+).join(', ');
+
+function renderLegend() {
+  const el = document.getElementById('color-legend');
+  if (filters.colorAxis === 'identity') {
+    el.innerHTML = '<div class="legend-categorical">' + COLOR_BUCKETS.map(b =>
+      `<span class="legend-item"><span class="legend-dot" style="background:${COLOR_HEX[b]}"></span>${b}</span>`
+    ).join('') + '</div>';
+  } else if (filters.colorAxis === 'type') {
+    el.innerHTML = '<div class="legend-categorical">' + TYPE_ORDER.map(t =>
+      `<span class="legend-item"><span class="legend-dot" style="background:${TYPE_COLOR[t]}"></span>${t.charAt(0).toUpperCase() + t.slice(1)}</span>`
+    ).join('') + '</div>';
+  } else {
+    const [lo, hi] = GRADIENT_LABELS[filters.colorAxis];
+    el.innerHTML = `<div class="legend-gradient">
+      <div class="bar" style="background:linear-gradient(to right, ${HEATMAP_CSS})"></div>
+      <div class="labels"><span>${lo}</span><span>${hi}</span></div>
+    </div>`;
+  }
+}
+renderLegend();
+
+// Format chips
+const formatChipsEl = document.getElementById('format-chips');
+formatChipsEl.innerHTML = FORMATS.map(f =>
+  `<span class="chip" data-format="${f}">${f}</span>`
+).join('');
+formatChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const f = el.dataset.format;
+    if (filters.formats.has(f)) { filters.formats.delete(f); el.classList.remove('active'); }
+    else { filters.formats.add(f); el.classList.add('active'); }
+    applyFilters();
+  });
+});
+
+// Card type chips
+const typeChipsEl = document.getElementById('type-chips');
+typeChipsEl.innerHTML = TYPE_ORDER.map(t =>
+  `<span class="chip" data-type="${t}">${t.charAt(0).toUpperCase() + t.slice(1)}</span>`
+).join('');
+typeChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const t = el.dataset.type;
+    if (filters.types.has(t)) { filters.types.delete(t); el.classList.remove('active'); }
+    else { filters.types.add(t); el.classList.add('active'); }
+    applyFilters();
+  });
+});
+
+// Set filter
+const SETS_IN_DATA = [...new Set(POINT_META.map(c => c.set).filter(Boolean))].sort();
+const setInput = document.getElementById('set-input');
+const setOptionsEl = document.getElementById('set-options');
+const selectedSetsEl = document.getElementById('selected-sets');
+
+function renderSetOptions(query) {
+  const q = query.trim().toLowerCase();
+  const matches = SETS_IN_DATA.filter(s => s.includes(q) && !filters.sets.has(s)).slice(0, 30);
+  if (!matches.length) { setOptionsEl.classList.remove('open'); return; }
+  setOptionsEl.innerHTML = matches.map(s => `<div class="set-option" data-set="${s}">${s}</div>`).join('');
+  setOptionsEl.classList.add('open');
+  setOptionsEl.querySelectorAll('.set-option').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.add(el.dataset.set);
+      setInput.value = '';
+      setOptionsEl.classList.remove('open');
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+function renderSelectedSets() {
+  selectedSetsEl.innerHTML = [...filters.sets].sort().map(s =>
+    `<span class="selected-set-chip" data-set="${s}">${s} ×</span>`
+  ).join('');
+  selectedSetsEl.querySelectorAll('.selected-set-chip').forEach(el => {
+    el.addEventListener('click', () => {
+      filters.sets.delete(el.dataset.set);
+      renderSelectedSets();
+      applyFilters();
+    });
+  });
+}
+setInput.addEventListener('input', () => renderSetOptions(setInput.value));
+setInput.addEventListener('focus', () => renderSetOptions(setInput.value));
+document.addEventListener('click', (e) => {
+  if (!setInput.contains(e.target) && !setOptionsEl.contains(e.target)) setOptionsEl.classList.remove('open');
+});
+
+// Mana value range slider
+const cmcMin = document.getElementById('cmc-min');
+const cmcMax = document.getElementById('cmc-max');
+const cmcVals = document.getElementById('cmc-vals');
+function updateCmcLabel() {
+  const lo = parseInt(cmcMin.value);
+  const hi = parseInt(cmcMax.value);
+  cmcVals.textContent = `${lo}–${hi >= 11 ? '10+' : hi}`;
+}
+function onCmcChange() {
+  let lo = parseInt(cmcMin.value);
+  let hi = parseInt(cmcMax.value);
+  if (lo > hi) { if (this === cmcMin) { hi = lo; cmcMax.value = lo; } else { lo = hi; cmcMin.value = hi; } }
+  filters.cmcMin = lo;
+  filters.cmcMax = hi;
+  updateCmcLabel();
+  applyFilters();
+}
+cmcMin.addEventListener('input', onCmcChange);
+cmcMax.addEventListener('input', onCmcChange);
+updateCmcLabel();
+
+// Price range slider (log-spaced via PRICE_STOPS lookup)
+const priceMin = document.getElementById('price-min');
+const priceMax = document.getElementById('price-max');
+const priceVals = document.getElementById('price-vals');
+function updatePriceLabel() {
+  priceVals.textContent = `${fmtPrice(parseInt(priceMin.value))} – ${fmtPrice(parseInt(priceMax.value))}`;
+}
+function onPriceChange() {
+  let lo = parseInt(priceMin.value);
+  let hi = parseInt(priceMax.value);
+  if (lo > hi) { if (this === priceMin) { hi = lo; priceMax.value = lo; } else { lo = hi; priceMin.value = hi; } }
+  filters.priceMin = lo;
+  filters.priceMax = hi;
+  updatePriceLabel();
+  applyFilters();
+}
+priceMin.addEventListener('input', onPriceChange);
+priceMax.addEventListener('input', onPriceChange);
+updatePriceLabel();
+
+// Color identity chips
+const colorChipsEl = document.getElementById('color-chips');
+colorChipsEl.innerHTML = COLOR_BUCKETS.map(b =>
+  `<span class="chip color-chip" style="background:${COLOR_HEX[b]}" data-color="${b}" title="${b}"></span>`
+).join('');
+colorChipsEl.querySelectorAll('.chip').forEach(el => {
+  el.addEventListener('click', () => {
+    const b = el.dataset.color;
+    if (filters.visibleColors.has(b)) { filters.visibleColors.delete(b); el.classList.add('off'); }
+    else { filters.visibleColors.add(b); el.classList.remove('off'); }
+    applyFilters();
+  });
+});
+
+// Release timeline
+const ONE_DAY_MS = 86400000;
+const TOTAL_DAYS = Math.round((DATE_MAX_MS - DATE_MIN_MS) / ONE_DAY_MS);
+const dateSlider = document.getElementById('date-slider');
+const dateLabel = document.getElementById('date-label');
+const playBtn = document.getElementById('play-btn');
+const playSpeed = document.getElementById('play-speed');
+dateSlider.max = TOTAL_DAYS;
+dateSlider.value = TOTAL_DAYS;
+
+const timeline = { playing: false, lastTick: 0 };
+
+function fmtDate(ms) {
+  if (ms >= DATE_MAX_MS) return 'All';
+  const d = new Date(ms);
+  return d.toLocaleString('en-US', { month: 'short', year: 'numeric' });
+}
+
+function updateTimelineUI() {
+  dateLabel.textContent = fmtDate(filters.dateMaxMs);
+  const daysFromStart = Math.round((filters.dateMaxMs - DATE_MIN_MS) / ONE_DAY_MS);
+  dateSlider.value = daysFromStart;
+}
+
+function setDateMs(ms) {
+  filters.dateMaxMs = Math.max(DATE_MIN_MS, Math.min(DATE_MAX_MS, ms));
+  updateTimelineUI();
+  applyFilters();
+}
+
+dateSlider.addEventListener('input', () => {
+  // Manual drag pauses playback.
+  if (timeline.playing) togglePlay();
+  setDateMs(DATE_MIN_MS + parseInt(dateSlider.value) * ONE_DAY_MS);
+});
+
+function timelineTick(t) {
+  if (!timeline.playing) return;
+  const dt = t - timeline.lastTick;
+  timeline.lastTick = t;
+  // speed is "years per real-time second"; convert to ms-of-card-date per ms-of-real-time
+  const ratePerMs = parseFloat(playSpeed.value) * 365 * ONE_DAY_MS / 1000;
+  let next = filters.dateMaxMs + dt * ratePerMs;
+  if (next >= DATE_MAX_MS) {
+    next = DATE_MAX_MS;
+    setDateMs(next);
+    togglePlay();  // stop at end
+    return;
+  }
+  setDateMs(next);
+  requestAnimationFrame(timelineTick);
+}
+
+function togglePlay() {
+  timeline.playing = !timeline.playing;
+  playBtn.textContent = timeline.playing ? '⏸' : '▶';
+  if (timeline.playing) {
+    // If we're at the end, rewind to start before playing.
+    if (filters.dateMaxMs >= DATE_MAX_MS) setDateMs(DATE_MIN_MS);
+    timeline.lastTick = performance.now();
+    requestAnimationFrame(timelineTick);
+  }
+}
+playBtn.addEventListener('click', togglePlay);
+
+// Cluster label toggles
+document.getElementById('show-labels').addEventListener('change', (e) => {
+  filters.showLabels = e.target.checked;
+  updateLabelVisibility();
+});
+document.getElementById('hide-sparse-labels').addEventListener('change', (e) => {
+  filters.hideSparseLabels = e.target.checked;
+  updateLabelVisibility();
+});
+
+// Filter section collapse
+document.getElementById('filter-header').addEventListener('click', () => {
+  document.getElementById('filter-section').classList.toggle('collapsed');
+  const span = document.getElementById('filter-header').querySelector('span');
+  span.textContent = span.textContent.startsWith('▾')
+    ? span.textContent.replace('▾', '▸') : span.textContent.replace('▸', '▾');
+});
+
+// Search
+const searchInput = document.getElementById('search');
+const searchResults = document.getElementById('search-results');
+const ORACLE_LOWER = POINT_META.map(c => (c.oracle_text || '').toLowerCase());
+searchInput.addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  if (!q) { searchResults.classList.remove('open'); searchResults.innerHTML = ''; return; }
+  const words = q.split(/\s+/).filter(Boolean);
+  const matches = [];
+  for (let i = 0; i < NAME_INDEX.length; i++) {
+    const nm = NAME_INDEX[i].name.toLowerCase();
+    const txt = ORACLE_LOWER[i];
+    const nameHit = words.every(w => nm.includes(w));
+    const textHit = !nameHit && words.every(w => txt.includes(w));
+    if (nameHit || textHit) matches.push({...NAME_INDEX[i], textHit, score: nm.length});
+  }
+  if (!matches.length) { searchResults.classList.remove('open'); return; }
+  matches.sort((a, b) => a.score - b.score);
+  const top = matches.slice(0, 15);
+  searchResults.innerHTML = top.map(m =>
+    `<div class="search-result" data-oid="${m.oid}">${escapeHtml(m.name)}<span class="sr-type">${escapeHtml(m.type)}</span>${m.textHit ? '<span class="sr-text-hit">[text]</span>' : ''}</div>`
+  ).join('');
+  searchResults.classList.add('open');
+  searchResults.querySelectorAll('.search-result').forEach(el => {
+    el.addEventListener('click', () => {
+      const oid = el.dataset.oid;
+      selectCard(oid);
+      searchInput.value = POINT_META[OID_TO_IDX[oid]].name;
+      searchResults.classList.remove('open');
+    });
+  });
+});
+document.addEventListener('click', (e) => {
+  if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+    searchResults.classList.remove('open');
+  }
+});
+
+// Panel toggle
+const panel = document.getElementById('panel');
+const toggleBtn = document.getElementById('toggle-panel');
+toggleBtn.addEventListener('click', () => {
+  panel.classList.toggle('collapsed');
+  toggleBtn.textContent = panel.classList.contains('collapsed') ? '»' : '«';
+});
+
+document.getElementById('clear-selection').addEventListener('click', clearSelection);
+
+window.addEventListener('resize', () => requestAnimationFrame(updateClusterLabels));
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s) { return escapeHtml(s); }
+</script>
+</body>
+</html>
