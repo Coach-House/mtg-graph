@@ -11,15 +11,33 @@
     --text: #e8e8e8; --text-dim: #888; --accent: #c9a227; --accent-bright: #fbbf24;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; }
+  html, body { margin: 0; padding: 0; min-height: 100%; }
   body {
-    background: var(--bg); color: var(--text);
+    background: var(--bg); color: var(--text); position: relative; overflow-x: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
   }
-  .wrap { display: grid; grid-template-columns: 42% 58%; min-height: 100vh; }
 
-  /* left: content */
-  .content { display: flex; flex-direction: column; justify-content: center; padding: 56px 56px; max-width: 560px; }
+  /* full-bleed embedding, sitting behind everything */
+  .bg { position: fixed; inset: 0; z-index: 0; background: var(--bg-deep); }
+  .bg img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }
+
+  /* heavy gradient: solid on the left so text reads, fading out so the
+     image bleeds in cleanly on the right — no hard seam */
+  .scrim {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      linear-gradient(to right,
+        var(--bg) 0%, var(--bg) 30%,
+        rgba(10, 10, 10, 0.92) 40%,
+        rgba(10, 10, 10, 0.55) 50%,
+        rgba(10, 10, 10, 0.0) 70%),
+      radial-gradient(130% 120% at 78% 50%, transparent 52%, rgba(6, 7, 9, 0.55) 100%);
+  }
+
+  .content {
+    position: relative; z-index: 2; min-height: 100vh; max-width: 600px;
+    display: flex; flex-direction: column; justify-content: center; padding: 56px 56px;
+  }
   h1 { font-size: 52px; font-weight: 600; letter-spacing: -0.025em; margin: 0 0 18px; color: var(--accent-bright); }
   .blurb { font-size: 17px; line-height: 1.6; color: var(--text); margin: 0 0 8px; }
   .blurb .dim { color: var(--text-dim); font-size: 15px; }
@@ -36,39 +54,36 @@
   .credit a { color: var(--accent); text-decoration: none; }
   .credit a:hover { text-decoration: underline; }
 
-  /* right: hero */
-  .hero { position: relative; background: var(--bg-deep); overflow: hidden; }
-  .hero img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .hero::after {
-    content: ""; position: absolute; inset: 0; pointer-events: none;
-    box-shadow: inset 0 0 120px 40px var(--bg-deep);
-    background: radial-gradient(120% 100% at 60% 50%, transparent 55%, rgba(6,7,9,0.55) 100%);
-  }
-
+  /* narrow screens: image fills the viewport, gradient runs top→bottom so the
+     text reads against a dark top and the scatter shows through below */
   @media (max-width: 820px) {
-    .wrap { grid-template-columns: 1fr; min-height: 100vh; }
-    .content { order: 1; padding: 44px 28px 32px; max-width: none; }
-    .hero { order: 2; min-height: 46vh; }
+    .scrim {
+      background: linear-gradient(to bottom,
+        var(--bg) 0%, var(--bg) 30%,
+        rgba(10, 10, 10, 0.78) 52%,
+        rgba(10, 10, 10, 0.35) 78%,
+        rgba(10, 10, 10, 0.15) 100%);
+    }
+    .content { justify-content: flex-start; padding: 13vh 28px 32px; max-width: none; }
     h1 { font-size: 40px; }
     .blurb { font-size: 16px; }
   }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <main class="content">
-    <h1>Planeswalk</h1>
-    <p class="blurb">A map of 33,683 Magic: The Gathering cards and their relationship to each other.</p>
-    <p class="blurb dim">Cards that sit close together share mechanics, themes, or text.</p>
-    <div class="btns">
-      <a class="btn primary" href="2d.html">2D map →</a>
-      <a class="btn" href="3d.html">3D space →</a>
-    </div>
-    <p class="credit">Produced by <a href="https://coachhouse.so">Coach House</a></p>
-  </main>
-  <div class="hero">
-    <img src="hero-2d.png" alt="A scatter map of 33,683 Magic: The Gathering cards, each a colored point placed by semantic similarity and tinted by color identity." />
-  </div>
+<div class="bg">
+  <img src="hero-2d.png" alt="A scatter map of 33,683 Magic: The Gathering cards, each a colored point placed by semantic similarity and tinted by color identity." />
 </div>
+<div class="scrim"></div>
+<main class="content">
+  <h1>Planeswalk</h1>
+  <p class="blurb">A map of 33,683 Magic: The Gathering cards and their relationship to each other.</p>
+  <p class="blurb dim">Cards that sit close together share mechanics, themes, or text.</p>
+  <div class="btns">
+    <a class="btn primary" href="2d.html">2D map →</a>
+    <a class="btn" href="3d.html">3D space →</a>
+  </div>
+  <p class="credit">Produced by <a href="https://coachhouse.so">Coach House</a></p>
+</main>
 </body>
 </html>
