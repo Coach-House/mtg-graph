@@ -241,7 +241,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
           </div>
           <div class="filter-row toggle-row">
             <label class="check-row">
-              <input type="checkbox" id="show-labels" checked />
+              <input type="checkbox" id="show-labels" />
               Show cluster labels
             </label>
             <label class="check-row">
@@ -726,7 +726,7 @@ for (const lbl of CLUSTER_LABELS) {
 }
 
 const SPARSE_LABEL_THRESHOLD = 10;
-const labelFilters = { showLabels: true, hideSparseLabels: true };
+const labelFilters = { showLabels: false, hideSparseLabels: true };
 const labelVisible = new Uint8Array(labelElements.length).fill(1);
 
 function updateLabelVisibility() {

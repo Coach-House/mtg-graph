@@ -276,7 +276,7 @@ html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); f
           </div>
           <div class="filter-row toggle-row">
             <label class="check-row">
-              <input type="checkbox" id="show-labels" checked />
+              <input type="checkbox" id="show-labels" />
               Show cluster labels
             </label>
             <label class="check-row">
@@ -389,7 +389,7 @@ const filters = {
   priceMax: PRICE_MAX_IDX,   // PRICE_MAX_IDX = "Any" = no upper limit
   visibleColors: new Set(COLOR_BUCKETS),  // all visible by default
   dateMaxMs: DATE_MAX_MS,    // hide cards released after this date; default = show all
-  showLabels: true,          // master toggle for all cluster labels
+  showLabels: false,         // master toggle for all cluster labels
   hideSparseLabels: true,    // hide labels whose cluster has < SPARSE_LABEL_THRESHOLD visible cards
 };
 const SPARSE_LABEL_THRESHOLD = 10;
